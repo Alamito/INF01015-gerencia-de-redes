@@ -1,0 +1,7 @@
+[
+  {"name": "web-lab", "type": "http", "url": "http://127.0.0.1:8080/", "lab_service": "web"},
+  {"name": "db-lab", "type": "tcp", "host": "127.0.0.1", "port": 6543, "lab_service": "db"},
+  {"name": "google-dns", "type": "ping", "host": "8.8.8.8"},
+  {"name": "ufrgs", "type": "http", "url": "https://www.ufrgs.br/", "slow_threshold_ms": 5000},
+  {"name": "broken-dns", "type": "http", "url": "http://netsentinel-nonexistent-domain.xyz/", "enabled": false}
+]
