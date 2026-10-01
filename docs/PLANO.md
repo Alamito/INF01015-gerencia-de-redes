@@ -28,6 +28,8 @@ nem Docker, e a demo é previsível porque temos um mini-laboratório de serviç
 - **Claude Code em modo headless** (`claude -p`) como "cérebro" do agente. Ele usa a **assinatura do Claude
   (Pro/Max)** de quem está logado no Claude Code, então **não precisa de API key nem gera cobrança extra**,
   só consome o limite de uso da assinatura.
+- **Modelo:** Claude Sonnet por padrão (`--model sonnet`). Haiku e Opus também foram testados e
+  resolveram todos os cenários; a variável `NETSENTINEL_MODEL` troca o modelo.
 - **MCP (Model Context Protocol)**: nossas ferramentas de rede viram um servidor MCP em Python
   (pacote `mcp`), e o Claude Code chama essas ferramentas.
 - `requests` para os testes HTTP e `truststore` para validar certificados HTTPS com o repositório do
@@ -61,16 +63,20 @@ nem Docker, e a demo é previsível porque temos um mini-laboratório de serviç
 ### Estrutura de arquivos
 ```
 netsentinel/
-├── README.md          # how to install, run and test
-├── requirements.txt   # mcp, requests, truststore
-├── targets.json       # monitored targets
-├── monitor.py         # entry point: monitoring loop + triggers the agent
-├── agent.py           # runs `claude -p`, streams actions live, saves the report
-├── agent_prompt.md    # agent system prompt
-├── net_tools.py       # network checks (plain Python functions)
-├── mcp_server.py      # exposes net_tools.py functions as MCP tools
-├── lab.py             # lab controller: hosts the fake services, takes commands
-└── reports/           # reports written by the agent
+├── README.md              # how to install, run and test
+├── requirements.txt       # mcp, requests, truststore
+├── config/
+│   └── targets.json       # monitored targets
+├── src/
+│   ├── monitor.py         # entry point: monitoring loop + triggers the agent
+│   ├── agent.py           # runs `claude -p`, streams actions live, saves the report
+│   ├── agent_prompt.md    # agent system prompt
+│   ├── net_tools.py       # network checks (plain Python functions)
+│   ├── mcp_server.py      # exposes net_tools.py functions as MCP tools
+│   ├── lab.py             # lab controller: hosts the fake services, takes commands
+│   └── paths.py           # project paths shared by the modules
+├── docs/                  # plano, tutorial, material do relatório, exemplos por modelo
+└── reports/               # reports written by the agent (not versioned)
 ```
 A configuração MCP do Claude Code é gerada em tempo de execução pelo `agent.py`
 (`.netsentinel/mcp_config.json`), apontando para o Python do `.venv`.
@@ -79,10 +85,10 @@ A configuração MCP do Claude Code é gerada em tempo de execução pelo `agent
 
 | Componente | Arquivos | Como testar isoladamente |
 |---|---|---|
-| **Ferramentas de rede** | `net_tools.py` + `mcp_server.py` | `python -c "import net_tools as t; print(t.ping('8.8.8.8'))"` |
-| **Laboratório** | `lab.py` + `targets.json` | `python lab.py run` e abrir http://127.0.0.1:8080 |
-| **Agente de IA** | `agent.py` + `agent_prompt.md` | `python agent.py "<descrição do problema>"` |
-| **Monitor** | `monitor.py` | `python monitor.py --once --no-agent` |
+| **Ferramentas de rede** | `net_tools.py` + `mcp_server.py` | `python src/net_tools.py ping 8.8.8.8` |
+| **Laboratório** | `lab.py` + `config/targets.json` | `python src/lab.py run` e abrir http://127.0.0.1:8080 |
+| **Agente de IA** | `agent.py` + `agent_prompt.md` | `python src/agent.py "<descrição do problema>"` |
+| **Monitor** | `monitor.py` | `python src/monitor.py --once --no-agent` |
 
 ### Ferramentas de rede (`net_tools.py` + `mcp_server.py`)
 - `net_tools.py` tem **funções Python puras**, sem nada de IA, que o monitor também usa:
@@ -99,13 +105,15 @@ A configuração MCP do Claude Code é gerada em tempo de execução pelo `agent
 ### Laboratório (`lab.py`)
 - Serviço `web`: servidor HTTP na porta **8080** (`http.server`). No modo `slow`, cada resposta demora 5 s.
 - Serviço `db`: servidor TCP na porta **6543** que só aceita conexões.
-- Os serviços rodam dentro de um **processo controlador** (`python lab.py run`), que fica aberto num terminal
+- Os serviços rodam dentro de um **processo controlador** (`python src/lab.py run`), que fica aberto num terminal
   e recebe comandos na porta local **8099**. Os comandos da CLI e o `restart_service` do agente só mandam
   ordens para ele. Isso é necessário porque o Claude Code encerra toda a árvore de processos ao terminar:
   um serviço iniciado diretamente pelo agente morreria junto. Bônus para a demo: o terminal do
   laboratório mostra quem fez cada ação (`web restarted (by agent)`).
-- CLI: `python lab.py run|start|stop|slow|status [service]`
-- Montar o `targets.json` com os alvos do laboratório e 2 alvos reais (ex.: `8.8.8.8`, `https://www.ufrgs.br`)
+- CLI: `python src/lab.py run|start|stop|slow|dns-fail|dns-ok|status [service]`
+- `dns-fail`/`dns-ok` ligam e desligam o cenário de DNS (ativam/desativam em `config/targets.json` um alvo
+  com domínio inexistente), para que todos os cenários sejam controlados pelo terminal.
+- Montar o `config/targets.json` com os alvos do laboratório e 2 alvos reais (ex.: `8.8.8.8`, `https://www.ufrgs.br`)
 
 ### Agente de IA (`agent.py`)
 - `agent.investigate(target, error)` monta a mensagem do alerta, envia pelo stdin e roda via `subprocess`:
@@ -131,10 +139,10 @@ A configuração MCP do Claude Code é gerada em tempo de execução pelo `agent
   > Finish with a short report **in Brazilian Portuguese** with these sections: Resumo, Evidências,
   > Causa provável, Ação tomada, Recomendação.
 - Tratar erros: `claude` não instalado ou não logado, e timeout (máx. 3 min por investigação).
-- Teste manual do agente: `python agent.py "web-lab at http://127.0.0.1:8080/ is not responding (lab service: web)"`.
+- Teste manual do agente: `python src/agent.py "web-lab at http://127.0.0.1:8080/ is not responding (lab service: web)"`.
 
 ### Monitor (`monitor.py`)
-- Ler o `targets.json` e testar cada alvo a cada 10 s, conforme o `type` (reusando as funções de `net_tools.py`)
+- Ler o `config/targets.json` e testar cada alvo a cada 10 s, conforme o `type` (reusando as funções de `net_tools.py`)
 - Mostrar um painel simples no console: `[OK]` / `[FAIL]` por alvo
 - Guardar o estado anterior e **só acionar o agente na transição OK → FAIL**, para não gastar o limite da assinatura
 - Depois que o agente agir, testar de novo e registrar se a correção funcionou
@@ -166,19 +174,19 @@ lab.status() -> dict   # {"web": "running", "db": "stopped"}
 agent.investigate(target: dict, error: str) -> str   # returns the markdown report
 ```
 
-**Alvo (`targets.json`):**
+**Alvo (`config/targets.json`):**
 ```json
 {"name": "web-lab", "type": "http", "url": "http://127.0.0.1:8080/", "lab_service": "web"}
 ```
 Tipos válidos: `ping` (usa `host`), `tcp` (usa `host` + `port`), `http` (usa `url`). `lab_service` é opcional.
 
 ## 6. Roteiro da demo (cerca de 5 min, 3 terminais)
-1. T1: `python lab.py run`. T2: `python monitor.py`, com todos `[OK]`. T3: comandos dos cenários.
-2. **Cenário 1, serviço caiu:** `python lab.py stop web`. O agente vê ping ok e porta fechada,
+1. T1: `python src/lab.py run`. T2: `python src/monitor.py`, com todos `[OK]`. T3: comandos dos cenários.
+2. **Cenário 1, serviço caiu:** `python src/lab.py stop web`. O agente vê ping ok e porta fechada,
    reinicia o serviço, e no próximo ciclo o alvo volta a `[OK]`.
-3. **Cenário 2, lentidão:** `python lab.py slow`. O agente vê DNS e porta ok e o HTTP com 5 s,
+3. **Cenário 2, lentidão:** `python src/lab.py slow`. O agente vê DNS e porta ok e o HTTP com 5 s,
    conclui que o problema está na aplicação e não na rede, e não reinicia à toa.
-4. **Cenário 3, DNS:** ativar o alvo `broken-dns` em `targets.json` (`"enabled": true`). O agente identifica
+4. **Cenário 3, DNS:** `python src/lab.py dns-fail` (e `dns-ok` para voltar). O agente identifica
    falha de resolução de nomes, faz um teste de controle com outro domínio e não reinicia nada.
 5. Abrir os relatórios gerados em `reports/`.
 

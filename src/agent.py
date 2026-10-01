@@ -4,7 +4,7 @@ Claude Code runs with the logged-in Claude subscription (no API key) and may onl
 use the NetSentinel MCP tools defined in mcp_server.py.
 
 Manual test:
-    python agent.py "web-lab at http://127.0.0.1:8080/ is not responding (lab service: web)"
+    python src/agent.py "web-lab at http://127.0.0.1:8080/ is not responding (lab service: web)"
 """
 
 import json
@@ -16,16 +16,13 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-PROJECT_DIR = Path(__file__).resolve().parent
-PROMPT_FILE = PROJECT_DIR / "agent_prompt.md"
-MCP_SERVER = PROJECT_DIR / "mcp_server.py"
-STATE_DIR = PROJECT_DIR / ".netsentinel"
-REPORTS_DIR = PROJECT_DIR / "reports"
+from paths import MCP_SERVER, PROJECT_DIR, PROMPT_FILE, REPORTS_DIR, STATE_DIR
 
 MCP_SERVER_NAME = "netsentinel"
 TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
-# Optional Claude Code model alias ("sonnet", "opus", ...); None uses the account default.
-MODEL = os.environ.get("NETSENTINEL_MODEL") or None
+# Claude Code model alias ("sonnet", "haiku", "opus"). All three solved every lab
+# scenario in our tests. Override with the NETSENTINEL_MODEL environment variable.
+MODEL = os.environ.get("NETSENTINEL_MODEL") or "sonnet"
 TIMEOUT_S = 180
 
 
@@ -50,9 +47,8 @@ def investigate(target: dict, error: str) -> str:
         "--output-format", "stream-json",
         "--verbose",
         "--no-session-persistence",
+        "--model", MODEL,
     ]
-    if MODEL:
-        command += ["--model", MODEL]
 
     env = os.environ.copy()
     if env.pop("ANTHROPIC_API_KEY", None):
@@ -104,7 +100,7 @@ def save_report(target_name: str, report: str) -> Path:
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in target_name)
     path = REPORTS_DIR / f"{now:%Y-%m-%d_%H%M%S}_{safe_name}.md"
     header = f"# Incidente: {target_name}\n\n_{now:%Y-%m-%d %H:%M:%S}_\n\n"
-    path.write_text(header + report + "\n", encoding="utf-8")
+    path.write_text(header + report + "\n", encoding="utf-8", newline="\n")
     return path
 
 
@@ -148,6 +144,7 @@ def _consume_stream(stdout) -> dict | None:
 
         kind = event.get("type")
         if kind == "system" and event.get("subtype") == "init":
+            print(f"[agent] model: {event.get('model', 'unknown')}", flush=True)
             for server in event.get("mcp_servers", []):
                 if server.get("name") == MCP_SERVER_NAME and server.get("status") != "connected":
                     print(f"[agent] warning: MCP server status is '{server.get('status')}'")

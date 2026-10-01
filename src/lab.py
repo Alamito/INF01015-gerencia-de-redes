@@ -5,11 +5,13 @@ terminal; the other commands (and the agent's restart_service tool) send orders
 to it over a local control port.
 
 Usage:
-    python lab.py run                start the controller with every service up (Ctrl+C to quit)
-    python lab.py start [web|db]     start a service (all if omitted)
-    python lab.py stop [web|db]      stop a service (all if omitted)
-    python lab.py slow               put the web service in slow mode (5 s per response)
-    python lab.py status             show the state of every service
+    python src/lab.py run                start the controller with every service up (Ctrl+C to quit)
+    python src/lab.py start [web|db]     start a service (all if omitted)
+    python src/lab.py stop [web|db]      stop a service (all if omitted)
+    python src/lab.py slow               put the web service in slow mode (5 s per response)
+    python src/lab.py dns-fail           enable the target whose domain does not resolve
+    python src/lab.py dns-ok             disable that target again
+    python src/lab.py status             show the state of every service and of the DNS scenario
 """
 
 import json
@@ -21,10 +23,14 @@ import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from paths import TARGETS_FILE
+
 HOST = "127.0.0.1"
 SERVICES = {"web": 8080, "db": 6543}
 CONTROL_PORT = 8099
 SLOW_DELAY_S = 5
+# Target in config/targets.json used by the DNS scenario (its domain does not exist).
+DNS_TARGET = "broken-dns"
 
 # On Windows, SO_REUSEADDR lets two sockets bind the same port, so keep it off there.
 REUSE_ADDRESS = sys.platform != "win32"
@@ -75,6 +81,25 @@ def is_slow(name: str) -> bool:
         return False
 
 
+def set_dns_failure(active: bool) -> bool:
+    """Enable or disable the DNS scenario target. Works without the controller,
+    because the monitor reloads config/targets.json on every cycle."""
+    targets = json.loads(TARGETS_FILE.read_text(encoding="utf-8"))
+    target = next((t for t in targets if t.get("name") == DNS_TARGET), None)
+    if target is None:
+        return False
+    target["enabled"] = active
+    # One target per line, the same layout used in the file.
+    lines = ",\n".join("  " + json.dumps(t, ensure_ascii=False) for t in targets)
+    TARGETS_FILE.write_text(f"[\n{lines}\n]\n", encoding="utf-8", newline="\n")
+    return True
+
+
+def is_dns_failure_active() -> bool:
+    targets = json.loads(TARGETS_FILE.read_text(encoding="utf-8"))
+    return any(t.get("name") == DNS_TARGET and t.get("enabled", True) for t in targets)
+
+
 # ---------------------------------------------------------------------------
 # Client side
 # ---------------------------------------------------------------------------
@@ -88,7 +113,7 @@ def _send(request: dict) -> dict:
             conn.sendall((json.dumps(request) + "\n").encode())
             response = conn.makefile("r", encoding="utf-8").readline()
     except OSError as exc:
-        raise LabControllerError("lab controller is not running (start it with: python lab.py run)") from exc
+        raise LabControllerError("lab controller is not running (start it with: python src/lab.py run)") from exc
     return json.loads(response)
 
 
@@ -137,7 +162,7 @@ class _DbServer(socketserver.ThreadingTCPServer):
 
 
 # ---------------------------------------------------------------------------
-# Controller (python lab.py run)
+# Controller (python src/lab.py run)
 # ---------------------------------------------------------------------------
 
 class _Controller:
@@ -245,10 +270,13 @@ def _print_status() -> None:
     for name, state in status().items():
         mode = " (slow)" if state == "running" and is_slow(name) else ""
         print(f"  {name:<4} {HOST}:{SERVICES[name]:<5} {state}{mode}")
+    dns_state = "failing (target enabled)" if is_dns_failure_active() else "ok (target disabled)"
+    print(f"  dns  {DNS_TARGET:<15} {dns_state}")
 
 
 def main(argv: list[str]) -> int:
-    if not argv or argv[0] not in ("run", "start", "stop", "slow", "status"):
+    commands = ("run", "start", "stop", "slow", "dns-fail", "dns-ok", "status")
+    if not argv or argv[0] not in commands:
         print(__doc__)
         return 1
 
@@ -258,6 +286,11 @@ def main(argv: list[str]) -> int:
     if command == "status":
         _print_status()
         return 0
+    if command in ("dns-fail", "dns-ok"):
+        ok = set_dns_failure(command == "dns-fail")
+        print(f"  {command}: {'ok' if ok else f'target {DNS_TARGET!r} not found in {TARGETS_FILE.name}'}")
+        _print_status()
+        return 0 if ok else 1
 
     names = argv[1:] or (["web"] if command == "slow" else list(SERVICES))
     success = True

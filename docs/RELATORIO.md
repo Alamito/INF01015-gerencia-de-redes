@@ -29,9 +29,11 @@ limitações e referências. A seção 1 sugere uma estrutura; as demais trazem 
 | Linguagem | Python 3.10+ (testado com 3.13.3) |
 | Plataforma de testes | Windows 11 |
 | Motor de IA | Claude Code 2.1.285 em modo headless (`claude -p`), via assinatura Claude |
+| Modelo padrão | Claude Sonnet (`sonnet` → `claude-sonnet-5-5`), configurável por `NETSENTINEL_MODEL` |
+| Modelos testados | Claude Sonnet 5.5, Claude Haiku 4.5 e Claude Opus 5.5 |
 | Protocolo de ferramentas | MCP (Model Context Protocol), transporte stdio |
 | Dependências | `mcp`, `requests`, `truststore` (ver `requirements.txt`) |
-| Tamanho do código | cerca de 850 linhas de Python em 5 módulos, mais o prompt do agente (33 linhas) |
+| Tamanho do código | cerca de 900 linhas de Python em 6 módulos, mais o prompt do agente (36 linhas) |
 
 ---
 
@@ -134,7 +136,7 @@ O papel do MCP lembra o de MIB + SNMP: é um contrato padronizado entre quem dec
 ```
 
 ### 5.1 Fluxo de um incidente
-1. O monitor verifica cada alvo de `targets.json` (HTTP, TCP ou ping).
+1. O monitor verifica cada alvo de `config/targets.json` (HTTP, TCP ou ping).
 2. Se um alvo que estava OK falha, o monitor gera um alerta com a descrição da falha.
 3. O `agent.py` monta a mensagem do alerta (alvo, erro observado, se é serviço do laboratório) e executa
    o `claude -p`, enviando o alerta pela entrada padrão.
@@ -147,13 +149,24 @@ O papel do MCP lembra o de MIB + SNMP: é um contrato padronizado entre quem dec
 
 | Arquivo | Linhas | Responsabilidade |
 |---|---|---|
-| `monitor.py` | 124 | Loop de polling, painel `[OK]`/`[FAIL]`, disparo na transição, verificação pós-ação |
-| `agent.py` | 210 | Execução do Claude Code headless, leitura do stream JSON, timeout, gravação do relatório |
-| `agent_prompt.md` | 33 | Prompt de sistema: método de diagnóstico, política de remediação, formato do relatório |
-| `net_tools.py` | 218 | Ferramentas de rede (funções Python puras, retornam JSON com a chave `ok`) |
-| `mcp_server.py` | 16 | Registra as funções de `net_tools.py` como ferramentas MCP (`FastMCP`) |
-| `lab.py` | 280 | Controlador do laboratório: serviços falsos e porta de controle |
-| `targets.json` | — | Alvos monitorados |
+| `src/monitor.py` | 128 | Loop de polling, painel `[OK]`/`[FAIL]`, disparo na transição, verificação pós-ação |
+| `src/agent.py` | 207 | Execução do Claude Code headless, leitura do stream JSON, timeout, gravação do relatório |
+| `src/agent_prompt.md` | 36 | Prompt de sistema: método de diagnóstico, política de remediação, formato do relatório |
+| `src/net_tools.py` | 233 | Ferramentas de rede (funções Python puras, retornam JSON com a chave `ok`); também roda pela linha de comando |
+| `src/mcp_server.py` | 16 | Registra as funções de `net_tools.py` como ferramentas MCP (`FastMCP`) |
+| `src/lab.py` | 313 | Controlador do laboratório: serviços falsos, porta de controle e cenário de DNS |
+| `src/paths.py` | 13 | Caminhos do projeto compartilhados pelos módulos |
+| `config/targets.json` | — | Alvos monitorados |
+
+### 5.3 Organização do repositório
+```
+README.md              visão geral, instalação e comandos
+requirements.txt       dependências (mcp, requests, truststore)
+config/targets.json    alvos monitorados
+src/                   código-fonte
+docs/                  plano, tutorial, este material e exemplos de relatórios por modelo
+reports/               relatórios gerados em execução (fora do controle de versão)
+```
 
 ---
 
@@ -178,7 +191,7 @@ modelo lê para escolher qual usar (por exemplo, "use traceroute somente quando 
   2000 ms), `tcp` (porta fechada ou sem resposta) e `ping` (sem respostas).
 - **Disparo por transição:** o agente só é acionado quando o alvo passa de OK para FAIL. Assim o modelo
   não é chamado a cada ciclo para o mesmo problema, o que economiza o limite de uso e evita ações repetidas.
-- `targets.json` é relido a cada ciclo, então alvos podem ser ativados ou desativados sem reiniciar o monitor.
+- `config/targets.json` é relido a cada ciclo, então alvos podem ser ativados ou desativados sem reiniciar o monitor.
 - Opções: `--once`, `--no-agent`, `--interval N`.
 
 ### 6.3 Agente (`agent.py` + `agent_prompt.md`)
@@ -186,14 +199,18 @@ Comando executado:
 ```
 claude -p --mcp-config .netsentinel/mcp_config.json --strict-mcp-config --tools "" \
   --allowedTools mcp__netsentinel --permission-mode dontAsk \
-  --append-system-prompt-file agent_prompt.md --output-format stream-json --verbose \
-  --no-session-persistence
+  --append-system-prompt-file src/agent_prompt.md --output-format stream-json --verbose \
+  --no-session-persistence --model sonnet
 ```
 - O prompt de sistema define o método (camada por camada, mínimo de chamadas), a **política de
   remediação** (só reiniciar serviço do laboratório que esteja fora do ar e nunca reiniciar por lentidão) e o formato
   do relatório (em português: Resumo, Evidências, Causa provável, Ação tomada, Recomendação).
 - O alerta vai pela entrada padrão para não ser confundido com opções da linha de comando.
 - Timeout de 180 s por investigação. Erros (CLI ausente, sem login, sem resposta) geram `AgentError`.
+- O modelo é escolhido por `--model` (padrão `sonnet`; a variável `NETSENTINEL_MODEL` permite `haiku` ou
+  `opus`). O modelo efetivamente usado é lido do evento inicial do stream e exibido no console.
+- No prompt foram incluídas duas regras depois dos testes com o Haiku (seção 9.5): começar o relatório
+  direto em "Resumo" e, quando um nome não resolve, consultar um domínio conhecido como controle.
 
 ### 6.4 Segurança: princípio do menor privilégio
 | Mecanismo | Efeito |
@@ -209,9 +226,13 @@ claude -p --mcp-config .netsentinel/mcp_config.json --strict-mcp-config --tools 
 ### 6.5 Laboratório (`lab.py`)
 - `web`: servidor HTTP (`http.server`) em 127.0.0.1:8080. No modo *slow*, cada resposta atrasa 5 s.
 - `db`: servidor TCP em 127.0.0.1:6543, que envia uma linha de saudação e fecha a conexão.
-- Os serviços rodam **dentro de um processo controlador** (`python lab.py run`), que recebe comandos JSON
+- Os serviços rodam **dentro de um processo controlador** (`python src/lab.py run`), que recebe comandos JSON
   numa porta de controle local (127.0.0.1:8099) e registra no console quem executou cada ação
   (`by cli` / `by agent`).
+- Cenário de DNS: `python src/lab.py dns-fail` ativa em `config/targets.json` um alvo cujo domínio não
+  existe (`netsentinel-nonexistent-domain.xyz`) e `dns-ok` o desativa. Como o monitor relê o arquivo a
+  cada ciclo e esquece o estado de alvos desativados, cada reativação gera um novo incidente.
+- Todos os cenários são provocados pelo terminal: `stop web`/`stop db`, `slow`, `dns-fail`.
 
 ---
 
@@ -229,13 +250,14 @@ claude -p --mcp-config .netsentinel/mcp_config.json --strict-mcp-config --tools 
 | Porta 6543 para o `db` | Porta 9000 (escolha inicial) | **Problema encontrado nos testes:** a 9000 caía numa faixa reservada pelo Windows (Hyper-V/WSL), `WinError 10013` |
 | `truststore` | Desativar a verificação TLS | **Problema encontrado nos testes:** o certificado de `www.ufrgs.br` falhava no Python (cadeia incompleta para o repositório `certifi`). O `truststore` usa os certificados do SO, como o navegador, sem abrir mão da segurança |
 | Relatórios em português, código em inglês | — | Código seguindo a convenção usual; relatório legível para a apresentação |
+| Sonnet como modelo padrão | Haiku (mais econômico), Opus (mais capaz) | Os três resolveram todos os cenários (seção 9.2). O Sonnet foi o mais rápido e seguiu o formato e a política sem ajustes; o Haiku precisou de duas regras extras no prompt; o Opus é o que mais consome o limite da assinatura |
 
 ---
 
 ## 8. Metodologia de testes
 
-**Ambiente:** Windows 11, Python 3.13.3 em ambiente virtual, Claude Code 2.1.285 com o modelo padrão da
-conta. Os alvos foram os dois serviços do laboratório (`web-lab`, `db-lab`), o DNS do Google (`8.8.8.8`,
+**Ambiente:** Windows 11, Python 3.13.3 em ambiente virtual, Claude Code 2.1.285. Os quatro cenários
+foram executados com três modelos: Claude Opus 5.5, Claude Haiku 4.5 e Claude Sonnet 5.5. Os alvos foram os dois serviços do laboratório (`web-lab`, `db-lab`), o DNS do Google (`8.8.8.8`,
 ping), o site da UFRGS (HTTPS, limiar de 5000 ms) e um domínio inexistente (`broken-dns`, ativado só no cenário 3).
 
 **Procedimento:** com o laboratório e o monitor rodando, cada falha foi provocada por um comando, e
@@ -253,39 +275,74 @@ foram observados:
 - `restart_service` com um nome fora da lista (rejeitado);
 - `ping` com argumento malicioso (`-n 1 x`, rejeitado pela validação).
 
-O passo a passo para reproduzir está em `TUTORIAL.md`.
+O passo a passo para reproduzir está em `docs/TUTORIAL.md`.
 
 ---
 
 ## 9. Resultados
 
-### 9.1 Resumo
+### 9.1 Resumo (modelo padrão: Claude Sonnet 5.5)
 
 | # | Cenário | Falha provocada | Ferramentas chamadas pelo agente | Diagnóstico | Ação | Verificação | Tempo* |
 |---|---|---|---|---|---|---|---|
-| 1 | Serviço caiu | `lab.py stop web` | `check_port` → `restart_service` → `check_http` | Serviço parado (porta fechada) | Reiniciou `web` | **OK** (HTTP 200) | ~35 s |
-| 1b | Serviço caiu (TCP) | `lab.py stop db` | `check_port` → `restart_service` → `check_port` | Serviço parado (porta fechada) | Reiniciou `db` | **OK** (porta aberta) | ~34 s |
-| 2 | Lentidão | `lab.py slow` | `check_port` → `check_http` | Problema na aplicação (porta ok, HTTP 200 em ~5 s) | **Nenhuma** (correto: política proíbe reiniciar por lentidão) | Continua lento (esperado) | ~33 s |
-| 3 | DNS | domínio inexistente | `dns_lookup` (alvo) ‖ `dns_lookup` (controle: www.ufrgs.br) | Falha de resolução do nome; resolvedor funcionando | **Nenhuma** (não é serviço do laboratório) | Continua falhando (esperado) | ~19 s |
+| 1 | Serviço caiu | `lab.py stop web` | `ping` ‖ `check_port` → `restart_service` → `check_http` | Serviço parado (host ok, porta fechada) | Reiniciou `web` | **OK** (HTTP 200) | ~25 s |
+| 1b | Serviço caiu (TCP) | `lab.py stop db` | `ping` ‖ `check_port` → `restart_service` → `check_port` | Serviço parado (host ok, porta fechada) | Reiniciou `db` | **OK** (porta aberta) | ~23 s |
+| 2 | Lentidão | `lab.py slow` | `ping` ‖ `check_port` ‖ `check_http` | Problema na aplicação (porta ok, HTTP 200 em ~5 s) | **Nenhuma** (correto: política proíbe reiniciar por lentidão) | Continua lento (esperado) | ~39 s |
+| 3 | DNS | `lab.py dns-fail` | `dns_lookup` (alvo) ‖ `dns_lookup` (controle: www.ufrgs.br) | Falha de resolução do nome; resolvedor funcionando | **Nenhuma** (não é serviço do laboratório) | Continua falhando (esperado) | ~16 s |
 
 \* Do início do ciclo de verificação até o relatório salvo, incluindo cerca de 5 s das verificações do próprio
-monitor (o ping usa 4 pacotes) e o tempo de inicialização do Claude Code e do servidor MCP.
+monitor (o ping usa 4 pacotes; no cenário 2, cada HTTP leva 5 s) e o tempo de inicialização do Claude Code
+e do servidor MCP.
 ‖ = chamadas feitas em paralelo pelo modelo.
 
-### 9.2 Observações relevantes para a discussão
-- **Escolha adaptativa dos testes:** o agente não executou ping nem DNS para alvos em 127.0.0.1 e justificou
-  isso no relatório ("o alvo é IP de loopback e a conexão foi recusada, não expirou"). No cenário 3, não
-  testou porta nem HTTP porque "sem endereço IP não há onde testar".
-- **Teste de controle espontâneo:** no cenário 3, o agente resolveu por conta própria um segundo domínio
-  (www.ufrgs.br) para separar "resolvedor quebrado" de "nome inexistente". Isso não estava no prompt.
+### 9.2 Comparação entre modelos
+
+Os mesmos quatro cenários foram executados com cada modelo. Todos chegaram ao diagnóstico correto e
+tomaram a ação correta (reiniciar só nos cenários 1 e 1b).
+
+| Cenário | Opus 5.5 | Haiku 4.5 | Sonnet 5.5 (padrão) |
+|---|---|---|---|
+| 1. web caiu | ✅ ~35 s · 3 chamadas | ✅ ~28 s · 5 chamadas | ✅ ~25 s · 4 chamadas |
+| 1b. db caiu | ✅ ~34 s · 3 chamadas | ✅ ~32 s · 4 chamadas | ✅ ~23 s · 4 chamadas |
+| 2. lentidão | ✅ ~33 s · 2 chamadas | ✅ ~44 s · 3 chamadas ⚠️ | ✅ ~39 s · 3 chamadas |
+| 3. DNS | ✅ ~19 s · 2 chamadas | ✅ ~20 s · 1 chamada ⚠️ | ✅ ~16 s · 2 chamadas |
+
+⚠️ Haiku, na primeira rodada (antes do ajuste no prompt):
+- **cenário 2:** escreveu um texto introdutório antes das seções do relatório, fora do formato pedido;
+- **cenário 3:** não fez a consulta de controle e afirmou que o domínio não existe sem verificar se o
+  resolvedor funcionava (conclusão correta, evidência incompleta).
+
+Depois de duas regras explícitas no prompt, o Haiku foi testado de novo nos cenários 2 e 3 e seguiu o
+formato e fez a consulta de controle (com `google.com`).
+
+**Diferenças de estilo:**
+- **Opus:** o mais econômico em chamadas. Não usou `ping` em 127.0.0.1, justificando que a conexão
+  recusada já prova que o host responde.
+- **Sonnet e Haiku:** preferiram testar rede e porta em paralelo (`ping` ‖ `check_port`), uma chamada a
+  mais que não altera o resultado.
+- **Todos:** confirmaram a recuperação depois de reiniciar.
+
+**Escolha do padrão:** o Sonnet ficou como padrão por ter sido o mais rápido e por seguir o formato e a
+política sem ajustes. O Haiku é uma alternativa viável para economizar o limite da assinatura.
+
+### 9.3 Observações relevantes para a discussão
+- **Escolha adaptativa dos testes:** a sequência de ferramentas não é fixa. O Opus não executou ping
+  para alvos em 127.0.0.1 e justificou isso ("o alvo é IP de loopback e a conexão foi recusada, não
+  expirou"). No cenário 3, nenhum modelo testou porta nem HTTP, porque "sem endereço IP não há onde testar".
+- **Teste de controle:** no cenário 3, o Opus resolveu por conta própria um segundo domínio (www.ufrgs.br)
+  para separar "resolvedor quebrado" de "nome inexistente", sem que isso estivesse no prompt. Como o Haiku
+  não fez o mesmo, a regra passou a ser explícita no prompt: um exemplo de como modelos menores precisam
+  de instruções mais detalhadas.
 - **Respeito à política:** no cenário 2, o agente explicou por que **não** reiniciou: "a política só
   permite reiniciar quando o serviço está fora do ar".
 - **Confirmação da ação:** depois de reiniciar, o agente sempre conferiu a recuperação (`check_http` ou `check_port`),
   e o monitor confirmou de forma independente.
-- **Paralelismo:** no cenário 3, o modelo pediu as duas consultas DNS na mesma etapa.
+- **Paralelismo:** os modelos pedem várias ferramentas na mesma etapa (ex.: as duas consultas DNS do
+  cenário 3, ou `ping`, `check_port` e `check_http` juntos no cenário 2).
 
-### 9.3 Exemplos de relatórios gerados
-Os relatórios completos dos testes estão em `examples/` (cópias da pasta `reports/`, que não vai para o git). Trecho do cenário 1:
+### 9.4 Exemplos de relatórios gerados
+Os relatórios completos dos testes estão em `docs/examples/`, separados por modelo (`sonnet-5.5/`,
+`haiku-4.5/`, `opus-5.5/`), como cópias da pasta `reports/`, que não vai para o git. Trecho do cenário 1 (Opus):
 
 > **Causa provável:** o processo do servidor HTTP não estava em execução. A falha está na camada de transporte/serviço:
 > o host responde, mas nada escuta na porta 8080. Não é um problema de DNS nem de conectividade, porque o alvo é um IP de loopback e o host recusou a conexão ativamente.
@@ -293,7 +350,7 @@ Os relatórios completos dos testes estão em `examples/` (cópias da pasta `rep
 > **Ação tomada:** reiniciei o serviço `web` com `restart_service`. Isso era seguro: o alvo é um serviço de laboratório e estava fora do ar (porta fechada).
 > Depois confirmei a recuperação com `check_http`, que retornou HTTP 200 em 11 ms.
 
-### 9.4 Problemas encontrados durante o desenvolvimento
+### 9.5 Problemas encontrados durante o desenvolvimento
 1. **Serviço reiniciado morria ao fim da investigação:** no primeiro teste, o agente reiniciou o `web`
    corretamente, mas a verificação do monitor falhou. O Claude Code encerra a árvore de processos ao
    terminar, e o serviço era filho do servidor MCP. Para resolver, o laboratório virou um controlador
@@ -304,13 +361,21 @@ Os relatórios completos dos testes estão em `examples/` (cópias da pasta `rep
    do Windows) funcionasse. Para resolver, foi adotado o `truststore`.
 4. **Formato do retorno MCP:** o `FastMCP` encapsula strings como `{"result": "..."}`, o que fazia o
    console exibir `FAIL` em resultados bem-sucedidos. Para resolver, o `agent.py` desfaz o encapsulamento antes de exibir.
+5. **Haiku menos aderente ao prompt:** com o Haiku, um relatório veio com texto antes das seções e o
+   diagnóstico de DNS veio sem consulta de controle. Para resolver, essas duas regras foram escritas
+   explicitamente no prompt, e os cenários foram repetidos com sucesso.
+6. **Cenário 3 exigia editar arquivo:** inicialmente, o alvo de DNS era ativado editando o
+   `targets.json` à mão. Para que todos os cenários fossem controlados pelo terminal, foram criados os
+   comandos `dns-fail`/`dns-ok`. Também foi corrigido o monitor, que não acionava o agente quando um alvo
+   desativado era reativado (o estado antigo "FAIL" ficava guardado).
 
 ---
 
 ## 10. Limitações
 
 - **Não determinismo:** o texto e, às vezes, a sequência de ferramentas variam entre execuções.
-  A política de remediação é reforçada pela lista fixa no código, mas a qualidade do diagnóstico depende do modelo.
+  A política de remediação é reforçada pela lista fixa no código, mas a qualidade do diagnóstico depende do
+  modelo: modelos menores (Haiku) precisaram de instruções mais explícitas.
 - **Latência:** cerca de 20 a 30 s por investigação. Adequado para gerência de falhas, inadequado para reação em tempo real.
 - **Dependência externa:** é preciso internet, conta com assinatura Claude e respeito ao limite de uso; sem isso,
   o sistema degrada para monitoramento simples (`--no-agent`).
@@ -369,5 +434,5 @@ Os relatórios completos dos testes estão em `examples/` (cópias da pasta `rep
 2. **Diagrama de sequência de um incidente:** monitor → agent.py → Claude Code → MCP → net_tools → lab.
 3. **Capturas de tela dos 3 terminais** em cada cenário: laboratório (log `by agent`), monitor (chamadas
    de ferramenta ao vivo) e sabotador.
-4. **Tabela de resultados** (seção 9.1).
-5. **Trecho de um relatório gerado** (pasta `examples/`).
+4. **Tabela de resultados** (seção 9.1) e **comparação entre modelos** (seção 9.2).
+5. **Trecho de um relatório gerado** (pasta `docs/examples/`).

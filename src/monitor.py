@@ -2,10 +2,10 @@
 when a target goes from OK to FAIL.
 
 Usage:
-    python monitor.py                 run forever (every 10 s)
-    python monitor.py --once          run a single cycle
-    python monitor.py --no-agent      only monitor, never call the AI
-    python monitor.py --interval 30   change the check interval (seconds)
+    python src/monitor.py                 run forever (every 10 s)
+    python src/monitor.py --once          run a single cycle
+    python src/monitor.py --no-agent      only monitor, never call the AI
+    python src/monitor.py --interval 30   change the check interval (seconds)
 """
 
 import argparse
@@ -14,12 +14,11 @@ import os
 import sys
 import time
 from datetime import datetime
-from pathlib import Path
 
 import agent
 import net_tools
+from paths import PROJECT_DIR, TARGETS_FILE
 
-TARGETS_FILE = Path(__file__).resolve().parent / "targets.json"
 DEFAULT_SLOW_THRESHOLD_MS = 2000
 
 GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
@@ -74,11 +73,16 @@ def handle_incident(target: dict, error: str) -> None:
 
     print(f"\n{report}\n")
     print(f"{GREEN if ok else RED}[monitor] verification: {verification}{RESET}")
-    print(f"{DIM}[monitor] report saved to {path.relative_to(agent.PROJECT_DIR)}{RESET}\n")
+    print(f"{DIM}[monitor] report saved to {path.relative_to(PROJECT_DIR)}{RESET}\n")
 
 
 def run_cycle(previous: dict[str, bool], use_agent: bool) -> None:
     targets = load_targets()
+    # Forget disabled targets, so re-enabling one counts as a fresh start.
+    active_names = {target["name"] for target in targets}
+    for name in list(previous):
+        if name not in active_names:
+            del previous[name]
     print(f"{DIM}[{datetime.now():%H:%M:%S}] checking {len(targets)} targets...{RESET}")
     incidents = []
     for target in targets:

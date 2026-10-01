@@ -10,6 +10,7 @@ import platform
 import re
 import socket
 import subprocess
+import sys
 import time
 
 import requests
@@ -216,3 +217,17 @@ def restart_service(name: str) -> str:
 
 
 ALL_TOOLS = [ping, dns_lookup, check_port, check_http, traceroute, restart_service]
+
+
+def main(argv: list[str]) -> int:
+    """Run one tool from the terminal, e.g. python src/net_tools.py check_port 127.0.0.1 8080"""
+    tools = {tool.__name__: tool for tool in ALL_TOOLS}
+    if not argv or argv[0] not in tools:
+        print(f"usage: python src/net_tools.py <tool> <args...>\ntools: {', '.join(tools)}")
+        return 1
+    print(tools[argv[0]](*argv[1:]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
