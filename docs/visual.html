@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NetSentinel · visão geral interativa</title>
+<style>
+  :root {
+    --bg: #0a0e19; --bg2: #0f1524; --panel: rgba(255,255,255,.045); --panel-solid: #121a2b;
+    --border: rgba(255,255,255,.09); --ink: #eaeefb; --muted: #94a0ba; --faint: #5d6a85;
+    --a1: #ff8a4c; --a2: #ff4d8d; --grad: linear-gradient(120deg, var(--a1), var(--a2));
+    --mon: #5b95ff; --ai: #a284ff; --tool: #2dd4b0; --lab: #fbbf24; --ext: #8b95a8;
+    --ok: #34d399; --fail: #fb5f8f; --skip: #6b7690;
+    --term: #070a12; --glow: 0 10px 40px -12px rgba(0,0,0,.6);
+    --mesh1: rgba(91,149,255,.16); --mesh2: rgba(255,77,141,.13); --grid: rgba(255,255,255,.025);
+    --mono: "Cascadia Code","JetBrains Mono",Consolas,ui-monospace,monospace;
+    --sans: "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  [data-theme="light"] {
+    --bg: #f3f5fb; --bg2: #e9edf8; --panel: rgba(255,255,255,.85); --panel-solid: #ffffff;
+    --border: rgba(20,30,60,.12); --ink: #141a2e; --muted: #56627f; --faint: #8a95b0;
+    --mon: #2f6bea; --ai: #7a56e6; --tool: #0b9c7f; --lab: #c98a00; --ext: #6b7488;
+    --ok: #12945f; --fail: #d6285f; --skip: #8d97ac;
+    --term: #121826; --glow: 0 10px 30px -14px rgba(30,50,110,.25);
+    --mesh1: rgba(91,149,255,.18); --mesh2: rgba(255,138,76,.14); --grid: rgba(20,30,60,.04);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; color: var(--ink); font: 15px/1.6 var(--sans); background: var(--bg);
+    background-image:
+      radial-gradient(900px 500px at 8% -5%, var(--mesh1), transparent 60%),
+      radial-gradient(800px 500px at 100% 0%, var(--mesh2), transparent 55%),
+      linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: auto, auto, 36px 36px, 36px 36px; background-attachment: fixed;
+  }
+  main { max-width: 1120px; margin: 0 auto; padding: 0 22px 90px; }
+  code { font-family: var(--mono); font-size: .86em; background: color-mix(in srgb, var(--ink) 9%, transparent); padding: 2px 6px; border-radius: 5px; }
+  b { font-weight: 650; }
+
+  /* top bar */
+  .nav { position: sticky; top: 0; z-index: 20; backdrop-filter: blur(14px); background: color-mix(in srgb, var(--bg) 70%, transparent); border-bottom: 1px solid var(--border); }
+  .nav-in { max-width: 1120px; margin: 0 auto; padding: 10px 22px; display: flex; align-items: center; gap: 6px; overflow-x: auto; }
+  .brand { font-weight: 800; letter-spacing: -.02em; margin-right: 14px; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .brand i { width: 22px; height: 22px; border-radius: 7px; background: var(--grad); display: inline-block; box-shadow: 0 0 18px -2px var(--a2); }
+  .nav a { color: var(--muted); text-decoration: none; font-size: 13px; padding: 5px 11px; border-radius: 999px; white-space: nowrap; transition: .2s; }
+  .nav a:hover { color: var(--ink); background: var(--panel); }
+  .theme { margin-left: auto; background: var(--panel); border: 1px solid var(--border); color: var(--ink); border-radius: 999px; padding: 5px 12px; cursor: pointer; font: inherit; font-size: 13px; }
+
+  /* hero */
+  .hero { padding: 64px 0 34px; }
+  .eyebrow { display: inline-flex; gap: 8px; align-items: center; font-size: 12.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--a1); font-weight: 700; }
+  .eyebrow::before { content: ""; width: 26px; height: 2px; background: var(--grad); border-radius: 2px; }
+  h1 { font-size: clamp(38px, 6vw, 64px); line-height: 1.04; letter-spacing: -.035em; margin: 14px 0 16px; font-weight: 800; }
+  h1 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lead { color: var(--muted); font-size: 18px; max-width: 720px; margin: 0 0 30px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 34px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; box-shadow: var(--glow); }
+  .stat b { display: block; font-size: 28px; line-height: 1.1; letter-spacing: -.02em; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .stat span { color: var(--muted); font-size: 13px; }
+  .pipe { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+  .pstep { flex: 1 1 150px; position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px 14px; box-shadow: var(--glow); }
+  .pstep .n { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-weight: 800; font-size: 13px; color: #fff; margin-bottom: 8px; }
+  .pstep b { display: block; font-size: 15px; }
+  .pstep span { font-size: 12.5px; color: var(--muted); line-height: 1.35; display: block; margin-top: 2px; }
+  .pstep.noai .n { background: var(--mon); } .pstep.ai .n { background: var(--ai); } .pstep.tool .n { background: var(--tool); }
+  .pstep:not(:last-child)::after { content: "›"; position: absolute; right: -9px; top: 50%; transform: translateY(-50%); color: var(--faint); font-size: 22px; z-index: 2; }
+  .tagrow { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--muted); }
+  .tagrow i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+
+  /* sections */
+  section { margin-top: 28px; background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 28px; box-shadow: var(--glow); scroll-margin-top: 70px; }
+  .sh { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 8px; }
+  .sh .num { flex: none; width: 38px; height: 38px; border-radius: 12px; background: var(--grad); color: #fff; display: grid; place-items: center; font-weight: 800; box-shadow: 0 8px 22px -8px var(--a2); }
+  h2 { font-size: 24px; letter-spacing: -.02em; margin: 0; line-height: 1.2; }
+  .sub { color: var(--muted); max-width: 820px; margin: 2px 0 22px 52px; }
+  h3 { font-size: 11.5px; margin: 0 0 9px; color: var(--faint); text-transform: uppercase; letter-spacing: .1em; font-weight: 700; }
+
+  /* diagram */
+  .stage { background: color-mix(in srgb, var(--bg) 60%, transparent); border: 1px solid var(--border); border-radius: 16px; padding: 10px; }
+  svg { display: block; width: 100%; height: auto; }
+  .node rect.box { rx: 12; fill: color-mix(in srgb, var(--g) 13%, var(--panel-solid)); stroke: color-mix(in srgb, var(--g) 55%, transparent); stroke-width: 1.5; transition: .3s; }
+  .node text { font-family: var(--sans); fill: var(--ink); pointer-events: none; }
+  .node .t { font-size: 15.5px; font-weight: 700; }
+  .node .s { font-size: 11.5px; fill: var(--muted); }
+  .node .pill { fill: var(--g); } .node .pt { font-size: 9px; font-weight: 800; letter-spacing: .08em; fill: #0b1020; }
+  .node.mon { --g: var(--mon); } .node.ai { --g: var(--ai); } .node.tool { --g: var(--tool); } .node.lab { --g: var(--lab); } .node.ext { --g: var(--ext); }
+  .node.ext rect.box { stroke-dasharray: 6 4; }
+  .node { opacity: .52; transition: opacity .3s; }
+  svg.idle .node, .node.active { opacity: 1; }
+  .node.active rect.box { stroke: var(--g); stroke-width: 2.5; filter: drop-shadow(0 0 12px var(--g)); fill: color-mix(in srgb, var(--g) 22%, var(--panel-solid)); }
+  .edge path { fill: none; stroke: color-mix(in srgb, var(--ink) 16%, transparent); stroke-width: 2; transition: .3s; }
+  .edge text { font-size: 11px; fill: var(--faint); font-family: var(--mono); }
+  .edge.active path { stroke: var(--a1); stroke-width: 3; filter: drop-shadow(0 0 5px var(--a1)); }
+  .edge.active text { fill: var(--a1); }
+  .packet { fill: #fff; filter: drop-shadow(0 0 6px var(--a1)) drop-shadow(0 0 10px var(--a2)); }
+
+  .ctrlbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 18px 0 12px; }
+  .btn { font: inherit; font-size: 14px; padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); color: var(--ink); cursor: pointer; transition: .18s; }
+  .btn:hover:not(:disabled) { transform: translateY(-1px); border-color: color-mix(in srgb, var(--a1) 70%, transparent); }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .btn.primary { background: var(--grad); border-color: transparent; color: #fff; font-weight: 700; box-shadow: 0 8px 22px -10px var(--a2); }
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+  .tab { font: inherit; font-size: 14px; padding: 9px 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: var(--muted); cursor: pointer; transition: .18s; text-align: left; }
+  .tab small { display: block; font-family: var(--mono); font-size: 11px; color: var(--faint); margin-top: 1px; }
+  .tab.on { color: var(--ink); border-color: var(--a1); background: color-mix(in srgb, var(--a1) 12%, transparent); }
+  .tab.on small { color: var(--a1); }
+  .dots { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+  .dots button { width: 12px; height: 12px; border-radius: 50%; border: none; background: var(--border); cursor: pointer; padding: 0; transition: .2s; }
+  .dots button.done { background: color-mix(in srgb, var(--a1) 55%, transparent); }
+  .dots button.cur { background: var(--a1); transform: scale(1.35); box-shadow: 0 0 10px var(--a1); }
+  .stepbox { position: relative; border-radius: 14px; padding: 14px 18px 14px 22px; background: color-mix(in srgb, var(--a1) 9%, transparent); border: 1px solid color-mix(in srgb, var(--a1) 30%, transparent); min-height: 82px; }
+  .stepbox::before { content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 4px; border-radius: 4px; background: var(--grad); }
+  .stepbox .k { font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--a1); text-transform: uppercase; }
+  .stepbox .tt { font-size: 17px; font-weight: 700; margin: 1px 0 3px; }
+  .stepbox .dd { color: var(--muted); }
+  .grid2 { display: grid; grid-template-columns: 1.35fr 1fr; gap: 18px; margin-top: 18px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } .sub { margin-left: 0; } }
+
+  .win { border-radius: 14px; overflow: hidden; border: 1px solid var(--border); background: var(--term); box-shadow: var(--glow); }
+  .win .bar { display: flex; gap: 6px; align-items: center; padding: 9px 12px; background: rgba(255,255,255,.05); }
+  .win .bar i { width: 10px; height: 10px; border-radius: 50%; display: block; }
+  .win .bar span { margin-left: 8px; font: 11.5px var(--mono); color: #7f8aa5; }
+  .term { padding: 12px 14px; color: #d7deee; font: 12.5px/1.65 var(--mono); height: 285px; overflow: auto; }
+  .term div { white-space: pre-wrap; word-break: break-word; }
+  .term .cmd { color: #ffd479; } .term .ok { color: #6fe3a4; } .term .fail { color: #ff7aa3; } .term .info { color: #8fa6ca; } .term .tool { color: #bda6ff; }
+  .term .cur { background: linear-gradient(90deg, rgba(255,138,76,.16), transparent); box-shadow: inset 2px 0 0 var(--a1); margin-left: -14px; padding-left: 12px; }
+
+  .layer { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 8px; background: var(--panel); transition: .3s; position: relative; }
+  .layer .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--skip); opacity: .45; flex: none; transition: .3s; }
+  .layer .nm { font-weight: 650; font-size: 14px; line-height: 1.2; }
+  .layer .tl { font: 11.5px var(--mono); color: var(--faint); }
+  .layer .st { margin-left: auto; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+  .layer.ok { border-color: color-mix(in srgb, var(--ok) 55%, transparent); background: color-mix(in srgb, var(--ok) 8%, transparent); }
+  .layer.ok .dot { background: var(--ok); opacity: 1; box-shadow: 0 0 10px var(--ok); } .layer.ok .st { color: var(--ok); }
+  .layer.fail { border-color: color-mix(in srgb, var(--fail) 60%, transparent); background: color-mix(in srgb, var(--fail) 10%, transparent); }
+  .layer.fail .dot { background: var(--fail); opacity: 1; box-shadow: 0 0 10px var(--fail); } .layer.fail .st { color: var(--fail); }
+  .layer.skip { opacity: .55; }
+  .decision { margin-top: 12px; padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--border); font-size: 14px; color: var(--muted); transition: .3s; }
+  .decision.yes { border: 1px solid var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ink); }
+  .decision.no { border: 1px solid var(--fail); background: color-mix(in srgb, var(--fail) 9%, transparent); color: var(--ink); }
+  .decision.wait { border-style: solid; border-color: var(--lab); color: var(--ink); }
+  .decision .lbl { display: block; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; font-weight: 800; margin-bottom: 2px; color: var(--faint); }
+
+  .report { display: none; margin-top: 18px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel-solid); overflow: hidden; animation: pop .4s ease; }
+  .report.show { display: block; }
+  .report .rh { padding: 10px 16px; background: color-mix(in srgb, var(--ai) 16%, transparent); font: 12px var(--mono); color: var(--muted); display: flex; justify-content: space-between; }
+  .report .rb { padding: 6px 20px 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 26px; }
+  .report h4 { margin: 14px 0 3px; font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--a1); }
+  .report ul { margin: 2px 0; padding-left: 18px; color: var(--muted); }
+  .report p { margin: 0; color: var(--muted); }
+  @keyframes pop { from { opacity: 0; transform: translateY(8px); } }
+
+  /* timeline */
+  .cycles { display: flex; gap: 0; flex-wrap: wrap; margin: 10px 0 14px; position: relative; }
+  .cyc { flex: 1 1 110px; min-width: 100px; text-align: center; position: relative; padding: 0 4px; }
+  .cyc::before { content: ""; position: absolute; top: 25px; left: 0; right: 0; height: 2px; background: var(--border); z-index: 0; }
+  .cyc .node-c { position: relative; z-index: 1; width: 50px; height: 50px; border-radius: 50%; margin: 0 auto; display: grid; place-items: center; font-weight: 800; font-size: 12px; color: #fff; }
+  .cyc .node-c.ok { background: var(--ok); box-shadow: 0 0 20px -4px var(--ok); color: #05241a; }
+  .cyc .node-c.fail { background: var(--fail); box-shadow: 0 0 20px -4px var(--fail); }
+  .cyc .node-c.fire { outline: 3px solid var(--a1); outline-offset: 4px; }
+  .cyc .tag { margin-top: 12px; font-size: 12.5px; color: var(--muted); min-height: 36px; line-height: 1.35; }
+  .cyc .tag.fire { color: var(--a1); font-weight: 700; }
+  .cyc .n { font: 11px var(--mono); color: var(--faint); margin-top: 6px; }
+  .note { background: color-mix(in srgb, var(--tool) 9%, transparent); border: 1px solid color-mix(in srgb, var(--tool) 32%, transparent); border-radius: 12px; padding: 11px 16px; color: var(--muted); font-size: 14px; }
+
+  /* tool cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 14px; }
+  .tcard { border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; background: color-mix(in srgb, var(--panel-solid) 70%, transparent); position: relative; overflow: hidden; }
+  .tcard::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c); }
+  .tcard .layer-chip { font-size: 10.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--c); }
+  .tcard .fn { font: 700 17px var(--mono); margin: 2px 0 8px; }
+  .tcard p { margin: 0 0 8px; color: var(--muted); font-size: 14px; }
+  .tcard .how { font-size: 12.5px; color: var(--faint); font-family: var(--mono); }
+  .pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font: 700 11.5px var(--mono); margin-right: 6px; }
+  .pill.open { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  .pill.closed { background: color-mix(in srgb, var(--fail) 18%, transparent); color: var(--fail); }
+  .pill.timeout { background: color-mix(in srgb, var(--lab) 20%, transparent); color: var(--lab); }
+  .states { display: grid; gap: 5px; font-size: 13px; color: var(--muted); margin-top: 6px; }
+
+  /* security */
+  .secgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .sec { border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; background: color-mix(in srgb, var(--panel-solid) 70%, transparent); display: flex; gap: 14px; }
+  .sec .n { flex: none; width: 34px; height: 34px; border-radius: 10px; background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); display: grid; place-items: center; font-weight: 800; border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent); }
+  .sec b { display: block; margin-bottom: 2px; }
+  .sec p { margin: 4px 0 0; color: var(--muted); font-size: 13.5px; }
+
+  /* process trees */
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
+  .proc { border-radius: 16px; padding: 16px 18px; border: 1px solid var(--border); background: color-mix(in srgb, var(--panel-solid) 70%, transparent); }
+  .proc .hd { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-bottom: 10px; }
+  .proc .hd span { font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 800; letter-spacing: .06em; }
+  .proc.bad .hd span { background: color-mix(in srgb, var(--fail) 20%, transparent); color: var(--fail); }
+  .proc.good .hd span { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
+  .proc pre { margin: 0; font: 12.5px/1.7 var(--mono); color: var(--muted); white-space: pre; overflow: auto; }
+  .proc pre b { color: var(--ink); }
+  .proc .res { margin-top: 10px; font-size: 13.5px; color: var(--muted); }
+
+  footer { margin-top: 40px; text-align: center; color: var(--faint); font-size: 13px; }
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s, transform .6s; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; } * { animation: none !important; } }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="nav-in">
+  <span class="brand"><i></i>NetSentinel</span>
+  <a href="#sim">Simulador</a><a href="#gatilho">Gatilho</a><a href="#tools">Ferramentas</a><a href="#politica">Política</a><a href="#seguranca">Segurança</a><a href="#lab">Laboratório</a>
+  <button class="theme" id="theme">☀ Tema claro</button>
+</div></nav>
+
+<main>
+  <header class="hero">
+    <span class="eyebrow">Gerência e Aplicações em Redes · UFRGS</span>
+    <h1>Um agente de IA que <em>investiga a rede</em> sozinho.</h1>
+    <p class="lead">Um monitor comum vigia os alvos. Quando algo quebra, ele chama um LLM que usa ferramentas de rede para achar a causa, decide se pode corrigir e escreve o relatório do incidente.</p>
+
+    <div class="stats">
+      <div class="stat"><b>6</b><span>ferramentas de rede expostas via MCP</span></div>
+      <div class="stat"><b>3 / 3</b><span>modelos (Opus, Sonnet, Haiku) acertaram todos os cenários</span></div>
+      <div class="stat"><b>~25 s</b><span>do alerta ao relatório salvo (Sonnet)</span></div>
+      <div class="stat"><b>R$ 0</b><span>de API: usa a assinatura do Claude Code</span></div>
+    </div>
+
+    <div class="pipe">
+      <div class="pstep noai"><div class="n">1</div><b>Detecta</b><span>Monitor testa ping, TCP e HTTP a cada 10 s</span></div>
+      <div class="pstep ai"><div class="n">2</div><b>Investiga</b><span>LLM testa camada por camada com as ferramentas</span></div>
+      <div class="pstep ai"><div class="n">3</div><b>Decide</b><span>Segue a política: só age quando é seguro</span></div>
+      <div class="pstep tool"><div class="n">4</div><b>Age</b><span>Reinicia serviços do laboratório</span></div>
+      <div class="pstep ai"><div class="n">5</div><b>Relata</b><span>Relatório em Markdown, em português</span></div>
+      <div class="pstep noai"><div class="n">6</div><b>Verifica</b><span>Monitor confere por conta própria</span></div>
+    </div>
+    <div class="tagrow">
+      <span><i style="background:var(--mon)"></i>código determinístico, sem IA</span>
+      <span><i style="background:var(--ai)"></i>LLM</span>
+      <span><i style="background:var(--tool)"></i>ação via ferramenta</span>
+    </div>
+  </header>
+
+  <!-- 1. SIMULADOR -->
+  <section id="sim" class="reveal">
+    <div class="sh"><div class="num">1</div><h2>Simulador de incidente</h2></div>
+    <p class="sub">Escolha um cenário e avance pelos passos (ou use as setas ← → do teclado). O diagrama mostra quem está trabalhando, o terminal reproduz o console, e o diagnóstico é montado camada por camada.</p>
+
+    <div class="tabs" id="tabs"></div>
+
+    <div class="stage">
+    <svg viewBox="0 0 930 420" id="arch" class="idle" role="img" aria-label="Arquitetura do NetSentinel">
+      <defs><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/></marker></defs>
+
+      <g class="edge" id="e-t-m"><path d="M190 62 H260" marker-end="url(#arr)"/></g>
+      <g class="edge" id="e-m-a"><path d="M430 62 H500" marker-end="url(#arr)"/><text x="436" y="50">OK→FAIL</text></g>
+      <g class="edge" id="e-a-c"><path d="M670 62 H740" marker-end="url(#arr)"/><text x="690" y="50">stdin</text></g>
+      <g class="edge" id="e-c-mcp"><path d="M825 94 V175" marker-end="url(#arr)"/><text x="834" y="140">MCP (stdio)</text></g>
+      <g class="edge" id="e-mcp-nt"><path d="M825 239 V287 H585 V330" marker-end="url(#arr)"/><text x="640" y="279">chama a função</text></g>
+      <g class="edge" id="e-nt-lab"><path d="M670 362 H740" marker-end="url(#arr)"/><text x="672" y="350">:8099</text></g>
+      <g class="edge" id="e-nt-net"><path d="M500 362 H430" marker-end="url(#arr)"/></g>
+      <g class="edge" id="e-m-net"><path d="M345 94 V330" marker-end="url(#arr)"/><text x="354" y="215">verifica</text></g>
+      <g class="edge" id="e-a-r"><path d="M585 94 V175" marker-end="url(#arr)"/><text x="594" y="140">salva .md</text></g>
+
+      <g class="node mon" id="n-targets"><rect class="box" x="20" y="30" width="170" height="64"/><rect class="pill" x="32" y="22" width="44" height="14" rx="7"/><text class="pt" x="54" y="32" text-anchor="middle">CONFIG</text><text class="t" x="105" y="58" text-anchor="middle">targets.json</text><text class="s" x="105" y="77" text-anchor="middle">alvos monitorados</text></g>
+      <g class="node mon" id="n-monitor"><rect class="box" x="260" y="30" width="170" height="64"/><rect class="pill" x="272" y="22" width="52" height="14" rx="7"/><text class="pt" x="298" y="32" text-anchor="middle">SEM IA</text><text class="t" x="345" y="58" text-anchor="middle">monitor.py</text><text class="s" x="345" y="77" text-anchor="middle">polling a cada 10 s</text></g>
+      <g class="node ai" id="n-agent"><rect class="box" x="500" y="30" width="170" height="64"/><rect class="pill" x="512" y="22" width="40" height="14" rx="7"/><text class="pt" x="532" y="32" text-anchor="middle">PONTE</text><text class="t" x="585" y="58" text-anchor="middle">agent.py</text><text class="s" x="585" y="77" text-anchor="middle">orquestra o Claude</text></g>
+      <g class="node ai" id="n-claude"><rect class="box" x="740" y="30" width="170" height="64"/><rect class="pill" x="752" y="22" width="30" height="14" rx="7"/><text class="pt" x="767" y="32" text-anchor="middle">LLM</text><text class="t" x="825" y="58" text-anchor="middle">claude -p</text><text class="s" x="825" y="77" text-anchor="middle">modo headless</text></g>
+      <g class="node ai" id="n-reports"><rect class="box" x="500" y="175" width="170" height="64"/><rect class="pill" x="512" y="167" width="52" height="14" rx="7"/><text class="pt" x="538" y="177" text-anchor="middle">SAÍDA</text><text class="t" x="585" y="203" text-anchor="middle">reports/</text><text class="s" x="585" y="222" text-anchor="middle">relatório .md</text></g>
+      <g class="node tool" id="n-mcp"><rect class="box" x="740" y="175" width="170" height="64"/><rect class="pill" x="752" y="167" width="34" height="14" rx="7"/><text class="pt" x="769" y="177" text-anchor="middle">MCP</text><text class="t" x="825" y="203" text-anchor="middle">mcp_server.py</text><text class="s" x="825" y="222" text-anchor="middle">FastMCP</text></g>
+      <g class="node tool" id="n-nt"><rect class="box" x="500" y="330" width="170" height="64"/><rect class="pill" x="512" y="322" width="54" height="14" rx="7"/><text class="pt" x="539" y="332" text-anchor="middle">TOOLS</text><text class="t" x="585" y="358" text-anchor="middle">net_tools.py</text><text class="s" x="585" y="377" text-anchor="middle">6 ferramentas</text></g>
+      <g class="node lab" id="n-lab"><rect class="box" x="740" y="330" width="170" height="64"/><rect class="pill" x="752" y="322" width="30" height="14" rx="7"/><text class="pt" x="767" y="332" text-anchor="middle">LAB</text><text class="t" x="825" y="358" text-anchor="middle">lab.py</text><text class="s" x="825" y="377" text-anchor="middle">web :8080 · db :6543</text></g>
+      <g class="node ext" id="n-net"><rect class="box" x="260" y="330" width="170" height="64"/><rect class="pill" x="272" y="322" width="62" height="14" rx="7"/><text class="pt" x="303" y="332" text-anchor="middle">EXTERNO</text><text class="t" x="345" y="358" text-anchor="middle">Rede / alvos</text><text class="s" x="345" y="377" text-anchor="middle">DNS · ICMP · TCP · HTTP</text></g>
+      <g id="packets"></g>
+    </svg>
+    </div>
+
+    <div class="ctrlbar">
+      <button class="btn" id="prev">◀ Anterior</button>
+      <button class="btn primary" id="next">Próximo ▶</button>
+      <button class="btn" id="play">▶ Auto</button>
+      <button class="btn" id="reset">↺ Reiniciar</button>
+      <div class="dots" id="dots"></div>
+    </div>
+    <div class="stepbox" id="stepbox"></div>
+
+    <div class="grid2">
+      <div>
+        <h3>Console</h3>
+        <div class="win"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>netsentinel · monitor</span></div><div class="term" id="term"></div></div>
+      </div>
+      <div>
+        <h3>Diagnóstico por camadas</h3>
+        <div id="layers"></div>
+        <div class="decision" id="decision"></div>
+      </div>
+    </div>
+    <div class="report" id="report"></div>
+  </section>
+
+  <!-- 2. GATILHO -->
+  <section id="gatilho" class="reveal">
+    <div class="sh"><div class="num">2</div><h2>Quando o agente é chamado?</h2></div>
+    <p class="sub">O monitor guarda o estado anterior de cada alvo. A IA só é acionada na <b>transição OK → FAIL</b>. Falhas seguintes do mesmo incidente são ignoradas, para não repetir investigações e ações.</p>
+    <div class="cycles" id="cycles"></div>
+    <div class="note">Depois que o agente termina, o monitor reverifica o alvo por conta própria e anexa o resultado ao relatório (“Verificação do monitor”). É uma confirmação independente do que o agente diz ter feito.</div>
+  </section>
+
+  <!-- 3. FERRAMENTAS -->
+  <section id="tools" class="reveal">
+    <div class="sh"><div class="num">3</div><h2>As ferramentas e o que cada resultado significa</h2></div>
+    <p class="sub">Cada ferramenta testa uma camada. O agente raciocina de baixo para cima e para quando acha a camada que falhou. Os docstrings das funções são o que o LLM lê para escolher qual usar.</p>
+    <div class="cards">
+      <div class="tcard" style="--c:var(--ai)"><div class="layer-chip">Nomes · DNS</div><div class="fn">dns_lookup</div>
+        <p>Se o nome não resolve, o problema é DNS e não adianta testar o resto. O agente faz um <b>teste de controle</b> com um domínio conhecido: assim separa “resolvedor quebrado” de “nome inexistente”.</p><div class="how">socket.getaddrinfo(name)</div></div>
+      <div class="tcard" style="--c:var(--mon)"><div class="layer-chip">Rede · ICMP</div><div class="fn">ping · traceroute</div>
+        <p>Ping com 4 pacotes: o parser conta linhas com “TTL”, que existem em qualquer idioma do SO. O <code>traceroute</code> é lento e só entra quando o ping de um host remoto falha.</p><div class="how">perda % · latência média · até 10 saltos</div></div>
+      <div class="tcard" style="--c:var(--tool)"><div class="layer-chip">Transporte · TCP</div><div class="fn">check_port</div>
+        <p>Abre uma conexão TCP (timeout de 3 s). O estado diz onde está o problema:</p>
+        <div class="states"><div><span class="pill open">open</span>serviço escutando</div><div><span class="pill closed">closed</span>recusada: host vivo, <b>serviço parado</b></div><div><span class="pill timeout">timeout</span>filtrado ou host fora do ar</div></div></div>
+      <div class="tcard" style="--c:var(--lab)"><div class="layer-chip">Aplicação · HTTP</div><div class="fn">check_http</div>
+        <p>DNS e porta funcionam, mas o HTTP está lento ou com erro? Então o <b>problema é da aplicação</b>, e reiniciar não é a resposta certa.</p><div class="how">requests.get → status + tempo (ms)</div></div>
+      <div class="tcard" style="--c:var(--fail)"><div class="layer-chip">Remediação</div><div class="fn">restart_service</div>
+        <p>A única ferramenta que altera algo. Só aceita <code>web</code> e <code>db</code>, por uma lista fixa no código. Qualquer outro nome é rejeitado.</p><div class="how">comando JSON → controlador do lab :8099</div></div>
+    </div>
+  </section>
+
+  <!-- 4. POLÍTICA -->
+  <section id="politica" class="reveal">
+    <div class="sh"><div class="num">4</div><h2>Quando o agente pode reiniciar um serviço?</h2></div>
+    <p class="sub">A política está no prompt (<code>agent_prompt.md</code>) e é reforçada no código: mesmo que o modelo erre, <code>restart_service</code> só aceita os serviços do laboratório.</p>
+    <div class="stage">
+    <svg viewBox="0 0 900 340" role="img" aria-label="Árvore de decisão da remediação">
+      <defs><marker id="arr2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/></marker></defs>
+      <g stroke="var(--faint)" stroke-width="2" fill="none" marker-end="url(#arr2)">
+        <path d="M450 62 V92 H230 V118"/><path d="M450 62 V92 H690 V118"/>
+        <path d="M230 178 V208 H130 V234"/><path d="M230 178 V208 H340 V234"/>
+      </g>
+      <g font-family="var(--sans)" font-size="12" fill="var(--muted)" font-weight="700">
+        <text x="330" y="86" text-anchor="middle">SIM</text><text x="580" y="86" text-anchor="middle">NÃO</text>
+        <text x="160" y="202" text-anchor="middle">SIM</text><text x="326" y="202" text-anchor="middle">NÃO · ABERTA, SÓ LENTO</text>
+      </g>
+      <g font-family="var(--sans)" text-anchor="middle">
+        <rect x="300" y="10" width="300" height="52" rx="12" fill="color-mix(in srgb, var(--ai) 20%, var(--panel-solid))" stroke="var(--ai)" stroke-width="2"/>
+        <text x="450" y="42" font-size="15" font-weight="700" fill="var(--ink)">O alvo é um serviço do laboratório?</text>
+
+        <rect x="80" y="118" width="300" height="60" rx="12" fill="color-mix(in srgb, var(--ai) 20%, var(--panel-solid))" stroke="var(--ai)" stroke-width="2"/>
+        <text x="230" y="144" font-size="15" font-weight="700" fill="var(--ink)">A porta está fechada?</text><text x="230" y="163" font-size="12" fill="var(--muted)">(connection refused)</text>
+
+        <rect x="540" y="118" width="300" height="60" rx="12" fill="color-mix(in srgb, var(--fail) 14%, var(--panel-solid))" stroke="var(--fail)" stroke-width="2"/>
+        <text x="690" y="144" font-size="15" font-weight="700" fill="var(--ink)">Não age</text><text x="690" y="163" font-size="12" fill="var(--muted)">diagnostica e recomenda (ex.: DNS)</text>
+
+        <rect x="10" y="234" width="240" height="70" rx="12" fill="color-mix(in srgb, var(--ok) 16%, var(--panel-solid))" stroke="var(--ok)" stroke-width="2"/>
+        <text x="130" y="262" font-size="15" font-weight="700" fill="var(--ink)">Reinicia</text><text x="130" y="282" font-size="12" fill="var(--muted)">e confirma com check_port/http</text>
+
+        <rect x="260" y="234" width="260" height="70" rx="12" fill="color-mix(in srgb, var(--fail) 14%, var(--panel-solid))" stroke="var(--fail)" stroke-width="2"/>
+        <text x="390" y="262" font-size="15" font-weight="700" fill="var(--ink)">Não reinicia</text><text x="390" y="282" font-size="12" fill="var(--muted)">relata problema de aplicação</text>
+      </g>
+    </svg>
+    </div>
+  </section>
+
+  <!-- 5. SEGURANÇA -->
+  <section id="seguranca" class="reveal">
+    <div class="sh"><div class="num">5</div><h2>Por que o agente não consegue fazer estrago</h2></div>
+    <p class="sub">Princípio do menor privilégio: o Claude Code recebe a menor superfície possível. As flags estão em <code>agent.py</code>.</p>
+    <div class="secgrid">
+      <div class="sec"><div class="n">1</div><div><b>Sem ferramentas nativas</b><code>--tools ""</code><p>O agente não tem shell nem acesso a arquivos.</p></div></div>
+      <div class="sec"><div class="n">2</div><div><b>Só o nosso servidor MCP</b><code>--strict-mcp-config</code><br><code>--allowedTools mcp__netsentinel</code><p>Ele só enxerga as 6 funções de <code>net_tools.py</code>.</p></div></div>
+      <div class="sec"><div class="n">3</div><div><b>Sem perguntas</b><code>--permission-mode dontAsk</code><p>Roda sem supervisão: o que não está permitido é negado.</p></div></div>
+      <div class="sec"><div class="n">4</div><div><b>Validação no código</b><p>Lista fixa para <code>restart_service</code>; hosts passam por regex, e um argumento como <code>-n 1 x</code> é rejeitado.</p></div></div>
+      <div class="sec"><div class="n">5</div><div><b>Sem custo de API</b><p><code>ANTHROPIC_API_KEY</code> é removida do ambiente do processo, então o uso sai da assinatura.</p></div></div>
+    </div>
+  </section>
+
+  <!-- 6. LAB -->
+  <section id="lab" class="reveal">
+    <div class="sh"><div class="num">6</div><h2>Por que o laboratório tem um controlador separado</h2></div>
+    <p class="sub">Problema real encontrado nos testes: o Claude Code encerra toda a árvore de processos ao terminar.</p>
+    <div class="two">
+      <div class="proc bad"><div class="hd">Antes <span>SERVIÇO MORRIA</span></div>
+<pre><b>claude -p</b>
+ └─ <b>mcp_server.py</b>
+     └─ serviço web  ← reiniciado pelo agente
+
+agente termina → árvore encerrada
+serviço morre</pre><div class="res">O monitor reverificava e o alvo ainda falhava.</div></div>
+      <div class="proc good"><div class="hd">Depois <span>SERVIÇO SOBREVIVE</span></div>
+<pre><b>terminal do usuário</b>
+ └─ <b>lab.py run</b>  (controlador :8099)
+     ├─ web :8080
+     └─ db  :6543
+
+claude → mcp → net_tools ──JSON──► :8099</pre><div class="res">O agente só envia um comando; o serviço vive em outro processo.</div></div>
+    </div>
+  </section>
+
+  <footer>Gerado a partir do código em <code>src/</code> e dos relatórios reais em <code>docs/examples/</code>. Os resultados do simulador reproduzem as execuções com Sonnet 5.5.</footer>
+</main>
+
+<script>
+const NODES = ["targets","monitor","agent","claude","reports","mcp","nt","lab","net"];
+const EDGES = ["e-t-m","e-m-a","e-a-c","e-c-mcp","e-mcp-nt","e-nt-lab","e-nt-net","e-m-net","e-a-r"];
+const LAYERS = [
+  {id:"dns",  name:"Nomes",      tool:"dns_lookup"},
+  {id:"icmp", name:"Rede",       tool:"ping"},
+  {id:"tcp",  name:"Transporte", tool:"check_port"},
+  {id:"http", name:"Aplicação",  tool:"check_http"},
+];
+const STATE_LABEL = {idle:"aguardando", ok:"ok", fail:"falha", skip:"não testado"};
+
+function tool(title, desc, call, result, okRes, layer, state, opts={}) {
+  return { t: title, d: desc,
+    n: ["claude","mcp","nt", opts.lab ? "lab" : "net"],
+    e: ["e-c-mcp","e-mcp-nt", opts.lab ? "e-nt-lab" : "e-nt-net"],
+    log: [["tool","  → "+call],[okRes ? "ok" : "fail","    ← "+result]],
+    layer: layer ? {[layer]: state} : {} };
+}
+function opening(alertText, why) {
+  return [
+    {t:"O monitor verifica os alvos", n:["targets","monitor","net"], e:["e-t-m","e-m-net"],
+     d:"A cada 10 s o monitor lê <code>targets.json</code> e testa cada alvo (ping, TCP ou HTTP). Nenhuma IA aqui: é código determinístico, barato e previsível.",
+     log:[["info","[10:42:07] checking 5 targets..."],["fail","  [FAIL] web-lab      "+alertText]]},
+    {t:"Transição OK → FAIL: dispara o agente", n:["monitor","agent"], e:["e-m-a"],
+     d:"O alvo estava OK no ciclo anterior e agora falhou. "+why,
+     log:[["fail","[monitor] ALERT: web-lab: "+alertText],["cmd","[agent] investigating web-lab..."]]},
+    {t:"agent.py inicia o Claude Code em modo headless", n:["agent","claude"], e:["e-a-c"],
+     d:"O alerta (alvo, erro, hora, se é serviço do lab) vai por <b>stdin</b> para <code>claude -p</code>, com o prompt de sistema e só o servidor MCP permitido. Usa a assinatura, sem API key.",
+     log:[["cmd","$ claude -p --tools \"\" --strict-mcp-config --permission-mode dontAsk ..."],["info","[agent] model: claude-sonnet-5-5"]]},
+  ];
+}
+function closing(verifyOk, verifyText) {
+  return [
+    {t:"O agente escreve o relatório", n:["claude","agent","reports"], e:["e-a-c","e-a-r"],
+     d:"A mensagem final do LLM é o relatório (em português, com seções fixas). O <code>agent.py</code> salva em <code>reports/</code>.",
+     log:[["info","[agent] report saved to reports/2026-10-01_142056_web-lab.md"]], report:true},
+    {t:"O monitor reverifica de forma independente", n:["monitor","net"], e:["e-m-net"],
+     d:"Não basta o agente dizer que corrigiu: o monitor testa o alvo de novo e anexa o resultado ao relatório.",
+     log:[[verifyOk?"ok":"fail","[monitor] verification: "+verifyText]]},
+  ];
+}
+
+const SCENARIOS = {
+  web: {
+    label:"1 · Serviço caiu", cmd:"python src/lab.py stop web",
+    steps:[
+      ...opening("GET http://127.0.0.1:8080/ failed: connection refused", "A causa ainda é desconhecida."),
+      tool("Rede: o host responde?","O agente começa pelas camadas de baixo: ping em 127.0.0.1.","ping('127.0.0.1')","ok · 0% perda · 1 ms",true,"icmp","ok"),
+      {...tool("Transporte: a porta está aberta?","<code>check_port</code> distingue <i>closed</i> (host vivo, nada escutando) de <i>timeout</i>. Aqui a conexão foi recusada: o serviço está parado.","check_port('127.0.0.1', 8080)","FAIL · state: closed · connection refused",false,"tcp","fail"),
+       layer:{tcp:"fail", dns:"skip"}, decision:["wait","Hipótese: serviço parado. Conferindo a política de remediação..."]},
+      {...tool("Remediação: reinicia o serviço","O alvo é do laboratório <b>e</b> a porta está fechada, então a política permite. O <code>net_tools</code> manda um comando JSON ao controlador do lab (:8099).","restart_service('web')","ok · state: running · port: 8080",true,"tcp","ok",{lab:true}),
+       decision:["yes","Reiniciou <b>web</b>: alvo do lab e porta fechada."]},
+      tool("Confirmação: o serviço voltou?","Depois de agir, o agente confere o resultado.","check_http('http://127.0.0.1:8080/')","ok · HTTP 200 · 29 ms",true,"http","ok"),
+      ...closing(true,"OK (HTTP 200 in 9 ms)"),
+    ],
+    report:{file:"2026-10-01_142056_web-lab.md", resumo:"O alvo <code>web-lab</code> estava fora do ar porque o serviço de laboratório <code>web</code> havia parado. Reiniciei o serviço e ele voltou ao normal.",
+      ev:["<code>ping 127.0.0.1</code>: 0% de perda, 1,0 ms","<code>check_port :8080</code>: closed (connection refused)","<code>restart_service web</code>: running","<code>check_http</code>: HTTP 200 em 29 ms"],
+      causa:"Camada de transporte/serviço: nada escutava na porta 8080. DNS e conectividade normais.",
+      acao:"Reiniciou o serviço <code>web</code> e confirmou a recuperação.",
+      rec:"Verificar os logs do serviço para achar o motivo da parada; avaliar reinício automático se repetir.", ver:"OK (HTTP 200 in 9 ms)"}
+  },
+  slow: {
+    label:"2 · Lentidão", cmd:"python src/lab.py slow",
+    steps:[
+      ...opening("GET http://127.0.0.1:8080/ too slow: 5003 ms (threshold 2000 ms)", "Não é falha de conexão: o HTTP respondeu, mas acima do limiar de 2000 ms."),
+      tool("Rede: o host responde?","Ping em 127.0.0.1.","ping('127.0.0.1')","ok · 0% perda · 1 ms",true,"icmp","ok"),
+      tool("Transporte: a porta está aberta?","Desta vez a porta <b>está aberta</b>: o serviço está de pé.","check_port('127.0.0.1', 8080)","ok · state: open · 2 ms",true,"tcp","ok"),
+      {...tool("Aplicação: quanto demora a resposta?","O servidor responde 200, mas leva ~5 s. Rede e transporte estão bem, então o problema está na aplicação.","check_http('http://127.0.0.1:8080/')","ok · HTTP 200 · 5004 ms",true,"http","fail"),
+       decision:["no","<b>Não reinicia.</b> A política só permite reiniciar serviço fora do ar; lento é problema de aplicação."]},
+      ...closing(false,"still failing (GET http://127.0.0.1:8080/ too slow: 5006 ms)"),
+    ],
+    report:{file:"2026-10-01_142154_web-lab.md", resumo:"O <code>web-lab</code> responde, mas com latência de ~5 s (limiar: 2 s). Problema de aplicação.",
+      ev:["<code>ping</code>: 0% de perda","<code>check_port 8080</code>: open","<code>check_http</code>: HTTP 200 em 5004 ms"],
+      causa:"Camada de aplicação: serviço ativo, porém lento.",
+      acao:"Nenhuma. A política permite reiniciar apenas serviços fora do ar.",
+      rec:"Investigar o que atrasa a aplicação (carga, consultas lentas, recursos do host).", ver:"still failing (esperado)"}
+  },
+  dns: {
+    label:"3 · Falha de DNS", cmd:"python src/lab.py dns-fail",
+    steps:[
+      ...opening("GET http://netsentinel-nonexistent-domain.xyz/ failed: name resolution failed", "O monitor reativou o alvo <code>broken-dns</code>, que passa a falhar."),
+      {...tool("Nomes: o domínio resolve?","Sem endereço IP não há o que testar nas camadas acima. Primeiro, o nome do alvo.","dns_lookup('netsentinel-nonexistent-domain.xyz')","FAIL · getaddrinfo failed",false,"dns","fail"),
+       layer:{dns:"fail", icmp:"skip", tcp:"skip", http:"skip"}},
+      {...tool("Teste de controle","O resolvedor está quebrado ou o nome simplesmente não existe? Resolve-se um domínio conhecido para separar as duas hipóteses.","dns_lookup('www.ufrgs.br')","ok · 143.54.2.20 · 1,9 ms",true,"dns","fail"),
+       decision:["no","<b>Não age.</b> O alvo não é do laboratório e reiniciar algo não resolveria um nome inexistente. O resolvedor está saudável."]},
+      ...closing(false,"still failing (name resolution failed)"),
+    ],
+    report:{file:"2026-10-01_142216_broken-dns.md", resumo:"O nome <code>netsentinel-nonexistent-domain.xyz</code> não resolve, mas o resolvedor funciona. O domínio provavelmente não existe.",
+      ev:["<code>dns_lookup</code> do alvo: getaddrinfo failed","<code>dns_lookup www.ufrgs.br</code> (controle): resolveu em 1,9 ms"],
+      causa:"Falha de DNS: o nome não tem registro. O resolvedor local está saudável.",
+      acao:"Nenhuma. O alvo não é serviço do laboratório e reiniciar não resolveria.",
+      rec:"Se for teste intencional, desabilitar o alvo; senão, conferir a grafia e o registro do domínio.", ver:"still failing (esperado)"}
+  },
+};
+
+let scen = "web", idx = -1, timer = null;
+const $ = id => document.getElementById(id);
+
+function buildTabs() {
+  $("tabs").innerHTML = "";
+  for (const [k,s] of Object.entries(SCENARIOS)) {
+    const b = document.createElement("button");
+    b.className = "tab" + (k === scen ? " on" : "");
+    b.innerHTML = `${s.label}<small>$ ${s.cmd}</small>`;
+    b.onclick = () => { scen = k; stop(); idx = -1; buildTabs(); render(); };
+    $("tabs").appendChild(b);
+  }
+}
+
+function setPackets(edgeIds) {
+  const g = $("packets"); g.innerHTML = "";
+  edgeIds.forEach((id,i) => {
+    const d = $(id).querySelector("path").getAttribute("d");
+    const c = document.createElementNS("http://www.w3.org/2000/svg","circle");
+    c.setAttribute("r","5"); c.setAttribute("class","packet");
+    const a = document.createElementNS("http://www.w3.org/2000/svg","animateMotion");
+    a.setAttribute("dur","1.3s"); a.setAttribute("repeatCount","indefinite"); a.setAttribute("path",d);
+    a.setAttribute("begin", (i*0.15)+"s");
+    c.appendChild(a); g.appendChild(c);
+  });
+}
+
+function render() {
+  const S = SCENARIOS[scen], steps = S.steps, cur = steps[idx];
+  $("arch").classList.toggle("idle", idx < 0);
+  NODES.forEach(n => $("n-"+n).classList.toggle("active", !!cur && cur.n.includes(n)));
+  EDGES.forEach(e => $(e).classList.toggle("active", !!cur && cur.e.includes(e)));
+  setPackets(cur ? cur.e : []);
+
+  $("stepbox").innerHTML = idx < 0
+    ? `<div class="k">Cenário</div><div class="tt">${S.label}</div><div class="dd">Para provocar essa falha no laboratório real: <code>${S.cmd}</code>. Clique em “Próximo” para acompanhar o que o sistema faz.</div>`
+    : `<div class="k">Passo ${idx+1} de ${steps.length}</div><div class="tt">${cur.t}</div><div class="dd">${cur.d}</div>`;
+  $("prev").disabled = idx < 0;
+  $("next").disabled = idx >= steps.length-1;
+  $("dots").innerHTML = steps.map((_,i) => `<button class="${i<idx?"done":i===idx?"cur":""}" data-i="${i}" title="Passo ${i+1}"></button>`).join("");
+  $("dots").querySelectorAll("button").forEach(b => b.onclick = () => { stop(); idx = +b.dataset.i; render(); });
+
+  const term = $("term"); term.innerHTML = "";
+  term.appendChild(line("cmd", "$ "+S.cmd+"      # em outro terminal"));
+  for (let i=0;i<=idx;i++) steps[i].log.forEach(([c,t]) => term.appendChild(line(c,t,i===idx)));
+  term.scrollTop = term.scrollHeight;
+
+  const st = {dns:"idle",icmp:"idle",tcp:"idle",http:"idle"}; let decision = null;
+  for (let i=0;i<=idx;i++) { Object.assign(st, steps[i].layer||{}); if (steps[i].decision) decision = steps[i].decision; }
+  $("layers").innerHTML = LAYERS.map(l =>
+    `<div class="layer ${st[l.id]}"><span class="dot"></span><div><div class="nm">${l.name}</div><div class="tl">${l.tool}</div></div><span class="st">${STATE_LABEL[st[l.id]]}</span></div>`).join("");
+  const d = $("decision");
+  d.className = "decision " + (decision ? decision[0] : "");
+  d.innerHTML = `<span class="lbl">Decisão do agente</span>` + (decision ? decision[1] : "aguardando evidências...");
+
+  const rp = $("report"), show = idx >= 0 && steps.slice(0,idx+1).some(s=>s.report);
+  rp.classList.toggle("show", show);
+  if (show) { const r = S.report;
+    rp.innerHTML = `<div class="rh"><span>reports/${r.file}</span><span>relatório gerado pelo agente</span></div><div class="rb">
+      <div><h4>Resumo</h4><p>${r.resumo}</p><h4>Evidências</h4><ul>${r.ev.map(e=>"<li>"+e+"</li>").join("")}</ul></div>
+      <div><h4>Causa provável</h4><p>${r.causa}</p><h4>Ação tomada</h4><p>${r.acao}</p><h4>Recomendação</h4><p>${r.rec}</p>
+      ${idx===steps.length-1?`<h4>Verificação do monitor</h4><p>${r.ver}</p>`:""}</div></div>`; }
+}
+function line(cls, text, current) { const d = document.createElement("div"); d.className = cls + (current ? " cur" : ""); d.textContent = text; return d; }
+function stop() { clearInterval(timer); timer = null; $("play").textContent = "▶ Auto"; }
+const last = () => SCENARIOS[scen].steps.length-1;
+const go = n => { if (idx < last()) { idx++; render(); } };
+$("next").onclick = () => { stop(); go(); };
+$("prev").onclick = () => { stop(); if (idx >= 0) { idx--; render(); } };
+$("reset").onclick = () => { stop(); idx = -1; render(); };
+$("play").onclick = () => {
+  if (timer) { stop(); return; }
+  if (idx >= last()) idx = -1;
+  $("play").textContent = "⏸ Pausar"; go(); timer = setInterval(() => idx < last() ? go() : stop(), 2800);
+};
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight") { stop(); go(); } else if (e.key === "ArrowLeft") { stop(); if (idx >= 0) { idx--; render(); } }
+});
+
+// gatilho: timeline de ciclos
+(function() {
+  const seq = [["OK",""],["OK",""],["FAIL","transição OK→FAIL: <b>chama o agente</b>",1],["FAIL","ainda falhando: ignora"],["OK","reiniciado e verificado"],["OK",""],["FAIL","nova falha: <b>chama o agente</b>",1]];
+  $("cycles").innerHTML = seq.map(([s,t,f],i) =>
+    `<div class="cyc"><div class="node-c ${s==="OK"?"ok":"fail"} ${f?"fire":""}">${s}</div><div class="tag ${f?"fire":""}">${t}</div><div class="n">ciclo ${i+1}</div></div>`).join("");
+})();
+
+// tema
+$("theme").onclick = () => {
+  const h = document.documentElement, light = h.dataset.theme !== "light";
+  h.dataset.theme = light ? "light" : "dark"; $("theme").textContent = light ? "☾ Tema escuro" : "☀ Tema claro";
+};
+// reveal
+const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), {threshold: .08});
+document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+
+buildTabs(); render();
+</script>
+</body>
+</html>
