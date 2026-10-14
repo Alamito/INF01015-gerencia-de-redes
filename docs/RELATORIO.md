@@ -494,6 +494,11 @@ Os relatórios completos dos testes estão em `docs/examples/`, separados por mo
 
 ## 14. Sugestões de figuras para o relatório
 
+**Imagens prontas:** `docs/prints/` tem 9 imagens de uma execução real (laboratório, monitor, os três
+cenários, a comunicação agente ↔ MCP e mensagens JSON-RPC completas), com legendas sugeridas e a seção
+correspondente deste documento em `docs/prints/LEGENDAS.md`. Os itens abaixo que ainda precisam ser
+desenhados são os diagramas (1 e 2).
+
 1. **Diagrama de arquitetura** (seção 5): pode ser redesenhado a partir do diagrama ASCII.
 2. **Diagrama de sequência de um incidente:** monitor → agent.py → Claude Code → MCP → net_tools → lab.
 3. **Captura da comunicação MCP** no monitor (linhas `[LLM]` e `[MCP]`), com destaque para o par

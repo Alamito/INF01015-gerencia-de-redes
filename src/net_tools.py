@@ -225,7 +225,8 @@ def main(argv: list[str]) -> int:
     if not argv or argv[0] not in tools:
         print(f"usage: python src/net_tools.py <tool> <args...>\ntools: {', '.join(tools)}")
         return 1
-    print(tools[argv[0]](*argv[1:]))
+    args = [int(arg) if arg.isdigit() else arg for arg in argv[1:]]  # e.g. ports
+    print(tools[argv[0]](*args))
     return 0
 
 

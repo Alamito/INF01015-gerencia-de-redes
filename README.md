@@ -10,6 +10,7 @@ corrige quando é seguro (reinicia serviços do laboratório) e grava um relató
 - [`docs/RELATORIO.md`](docs/RELATORIO.md): material para o relatório (teoria, arquitetura, decisões, resultados)
 - [`docs/PLANO.md`](docs/PLANO.md): plano original do trabalho
 - [`docs/examples/`](docs/examples/): relatórios reais gerados pelo agente nos testes, separados por modelo
+- [`docs/prints/`](docs/prints/): imagens de uma execução real para o relatório, com legendas em `LEGENDAS.md`
 
 ## Requisitos
 - Python 3.10+
