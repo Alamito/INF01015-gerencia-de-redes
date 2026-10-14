@@ -197,6 +197,20 @@
   .proc pre b { color: var(--ink); }
   .proc .res { margin-top: 10px; font-size: 13.5px; color: var(--muted); }
 
+  .tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .tbl th, .tbl td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .tbl th { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+  .tbl td { color: var(--muted); } .tbl td:first-child { white-space: nowrap; color: var(--ink); }
+  .scroll { overflow-x: auto; }
+  .code { background: var(--term); color: #d7deee; border-radius: 12px; padding: 12px 16px; font: 12.5px/1.65 var(--mono); overflow: auto; white-space: pre; margin: 0 0 14px; border: 1px solid var(--border); }
+  .code .c { color: #7f8aa5; } .code .k { color: #ffd479; } .code .g { color: #6fe3a4; } .code .p { color: #bda6ff; } .code .r { color: #ff7aa3; }
+  .flow { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 14px; }
+  .flow .st { flex: 1 1 150px; position: relative; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--panel-solid) 70%, transparent); font-size: 13.5px; color: var(--muted); }
+  .flow .st b { display: block; color: var(--ink); font-size: 13px; margin-bottom: 2px; }
+  .flow .st:not(:last-child)::after { content: "›"; position: absolute; right: -11px; top: 50%; transform: translateY(-50%); color: var(--faint); font-size: 20px; z-index: 2; }
+  .note.warn { background: color-mix(in srgb, var(--lab) 10%, transparent); border-color: color-mix(in srgb, var(--lab) 40%, transparent); }
+  .note + h3, .code + h3, .flow + h3, .scroll + h3, .two + h3 { margin-top: 20px; }
+  .note { margin-top: 12px; }
   footer { margin-top: 40px; text-align: center; color: var(--faint); font-size: 13px; }
   .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s, transform .6s; }
   .reveal.in { opacity: 1; transform: none; }
@@ -206,7 +220,7 @@
 <body>
 <nav class="nav"><div class="nav-in">
   <span class="brand"><i></i>NetSentinel</span>
-  <a href="#sim">Simulador</a><a href="#gatilho">Gatilho</a><a href="#tools">Ferramentas</a><a href="#politica">Política</a><a href="#seguranca">Segurança</a><a href="#lab">Laboratório</a>
+  <a href="#sim">Simulador</a><a href="#gatilho">Gatilho</a><a href="#alvos">Alvos</a><a href="#tools">Ferramentas</a><a href="#entrega">Entrega ao agente</a><a href="#politica">Política</a><a href="#seguranca">Segurança</a><a href="#lab">Laboratório</a><a href="#arquivos">Arquivos</a>
   <button class="theme" id="theme">☀ Tema claro</button>
 </div></nav>
 
@@ -301,11 +315,34 @@
     <p class="sub">O monitor guarda o estado anterior de cada alvo. A IA só é acionada na <b>transição OK → FAIL</b>. Falhas seguintes do mesmo incidente são ignoradas, para não repetir investigações e ações.</p>
     <div class="cycles" id="cycles"></div>
     <div class="note">Depois que o agente termina, o monitor reverifica o alvo por conta própria e anexa o resultado ao relatório (“Verificação do monitor”). É uma confirmação independente do que o agente diz ter feito.</div>
+    <div class="note warn"><b>O monitor não é avisado de nada.</b> Um <code>lab.py stop web</code> não comunica o monitor: ele só percebe quando o teste do ciclo seguinte falha, então a detecção leva até 10 s. Uma falha que começa e termina entre dois ciclos passa despercebida (limite do polling).</div>
+  </section>
+
+  <!-- ALVOS -->
+  <section id="alvos" class="reveal">
+    <div class="sh"><div class="num">3</div><h2>Alvos: o que significa o <code>type</code></h2></div>
+    <p class="sub">O <code>type</code> em <code>targets.json</code> escolhe qual verificação o <b>monitor</b> faz. O agente não olha para ele: recebe o alvo como JSON e escolhe as ferramentas sozinho.</p>
+    <div class="scroll"><table class="tbl">
+      <tr><th>type</th><th>Campos</th><th>O que roda de fato</th><th>Falha quando</th></tr>
+      <tr><td><code>ping</code></td><td>host</td><td>Comando <code>ping</code> do SO (via subprocess)</td><td>nenhuma resposta</td></tr>
+      <tr><td><code>tcp</code></td><td>host, port</td><td>Python: <code>socket.create_connection</code></td><td>porta não abre</td></tr>
+      <tr><td><code>http</code></td><td>url</td><td>Python: <code>requests.get</code></td><td>erro, status ≥ 400 ou tempo acima do limiar</td></tr>
+    </table></div>
+    <div class="note">Opcionais: <code>slow_threshold_ms</code> (só em http; padrão 2000), <code>lab_service</code> (marca o alvo como serviço do lab e é o que autoriza o <code>restart_service</code>) e <code>enabled</code>. O <code>nslookup</code> não é usado: o DNS é feito com <code>socket.getaddrinfo</code>, e não existe <code>type: "dns"</code>.</div>
+
+    <h3>Como o cenário broken-dns funciona</h3>
+    <div class="flow">
+      <div class="st"><b>1 · lab.py dns-fail</b>reescreve o JSON: <code>enabled: true</code></div>
+      <div class="st"><b>2 · monitor</b>relê o arquivo a cada ciclo e passa a testar o alvo</div>
+      <div class="st"><b>3 · check_http</b>falha: <code>name resolution failed</code>, e o monitor vê OK → FAIL</div>
+      <div class="st"><b>4 · agente</b><code>dns_lookup</code> do alvo falha; o de controle (ufrgs) resolve; não age</div>
+    </div>
+    <div class="note warn">O DNS não é quebrado de verdade: o domínio simplesmente não existe. O cenário simula “nome inexistente”, e o teste de controle é o que o distingue de “resolvedor fora do ar”.</div>
   </section>
 
   <!-- 3. FERRAMENTAS -->
   <section id="tools" class="reveal">
-    <div class="sh"><div class="num">3</div><h2>As ferramentas e o que cada resultado significa</h2></div>
+    <div class="sh"><div class="num">4</div><h2>As ferramentas e o que cada resultado significa</h2></div>
     <p class="sub">Cada ferramenta testa uma camada. O agente raciocina de baixo para cima e para quando acha a camada que falhou. Os docstrings das funções são o que o LLM lê para escolher qual usar.</p>
     <div class="cards">
       <div class="tcard" style="--c:var(--ai)"><div class="layer-chip">Nomes · DNS</div><div class="fn">dns_lookup</div>
@@ -314,17 +351,63 @@
         <p>Ping com 4 pacotes: o parser conta linhas com “TTL”, que existem em qualquer idioma do SO. O <code>traceroute</code> é lento e só entra quando o ping de um host remoto falha.</p><div class="how">perda % · latência média · até 10 saltos</div></div>
       <div class="tcard" style="--c:var(--tool)"><div class="layer-chip">Transporte · TCP</div><div class="fn">check_port</div>
         <p>Abre uma conexão TCP (timeout de 3 s). O estado diz onde está o problema:</p>
-        <div class="states"><div><span class="pill open">open</span>serviço escutando</div><div><span class="pill closed">closed</span>recusada: host vivo, <b>serviço parado</b></div><div><span class="pill timeout">timeout</span>filtrado ou host fora do ar</div></div></div>
+        <div class="states"><div><span class="pill open">open</span>serviço escutando</div><div><span class="pill closed">closed</span>recusada (RST): host vivo, nada escutando</div><div><span class="pill timeout">timeout</span>filtrado ou host fora do ar</div></div>
+        <p style="margin-top:8px;font-size:13px"><b>Cuidado:</b> <code>closed</code> não prova que o processo caiu. No lab, é a explicação mais provável. Em produção, também poderia ser porta errada, endereço diferente ou firewall com REJECT.</p></div>
       <div class="tcard" style="--c:var(--lab)"><div class="layer-chip">Aplicação · HTTP</div><div class="fn">check_http</div>
-        <p>DNS e porta funcionam, mas o HTTP está lento ou com erro? Então o <b>problema é da aplicação</b>, e reiniciar não é a resposta certa.</p><div class="how">requests.get → status + tempo (ms)</div></div>
+        <p>É uma função Python (não um comando). <code>ok</code> é verdadeiro com status &lt; 400. Ela <b>só informa</b> o tempo: quem decide que está lento é o monitor, comparando com o limiar. Por isso, na lentidão, ela devolve <code>ok: true</code>.</p><div class="how">requests.get → status + time_ms · timeout 10 s</div></div>
       <div class="tcard" style="--c:var(--fail)"><div class="layer-chip">Remediação</div><div class="fn">restart_service</div>
         <p>A única ferramenta que altera algo. Só aceita <code>web</code> e <code>db</code>, por uma lista fixa no código. Qualquer outro nome é rejeitado.</p><div class="how">comando JSON → controlador do lab :8099</div></div>
     </div>
   </section>
 
+  <!-- ENTREGA AO AGENTE -->
+  <section id="entrega" class="reveal">
+    <div class="sh"><div class="num">5</div><h2>Como o agente recebe as informações</h2></div>
+    <p class="sub">Dois caminhos: o <b>alerta inicial</b>, enviado como prompt, e o <b>resultado de cada ferramenta</b>, que volta para a conversa. O modelo nunca vê o código Python, só o nome, os parâmetros e o docstring.</p>
+
+    <div class="scroll"><table class="tbl">
+      <tr><th>O que o modelo recebe</th><th>Origem</th></tr>
+      <tr><td>Prompt de sistema</td><td><code>agent_prompt.md</code> (<code>--append-system-prompt-file</code>)</td></tr>
+      <tr><td>Lista de ferramentas</td><td>MCP: nome, parâmetros e docstring de cada função</td></tr>
+      <tr><td>Mensagem do usuário (o alerta)</td><td><code>agent._build_alert()</code>, enviada por stdin</td></tr>
+    </table></div>
+
+    <h3>O alerta (mensagem do usuário)</h3>
+<pre class="code"><span class="k">ALERT from the NetSentinel monitor.</span>
+Time: 2026-10-13 10:42:07
+Target: {"name": "web-lab", "type": "http", "url": "http://127.0.0.1:8080/", "lab_service": "web"}
+Observed failure: GET http://127.0.0.1:8080/ failed: connection error: connection refused
+This target is the lab service 'web'.
+Investigate, remediate if appropriate, and write the incident report.</pre>
+
+    <h3>O laço de ferramentas</h3>
+<pre class="code"><span class="c">modelo</span>     <span class="p">chama</span> check_port(host="127.0.0.1", port=8080)
+<span class="c">resultado</span> {"ok": false, "port": 8080, "state": "closed", "error": "connection refused"}
+<span class="c">modelo</span>     <span class="p">chama</span> restart_service(name="web")
+<span class="c">resultado</span> {"ok": true, "name": "web", "state": "running", "port": 8080}
+<span class="c">modelo</span>     <span class="g">### Resumo ...</span>   <span class="c">← a última mensagem vira o relatório</span></pre>
+
+    <h3>O que o MCP entrega sobre <code>restart_service</code></h3>
+<pre class="code">name:        restart_service
+description: Restart a lab service. Only the lab services "web" and "db" are allowed.
+             Use it only when a lab service is down (port closed). ...
+inputSchema: { name: string (obrigatório) }   <span class="r">← sem enum</span></pre>
+    <div class="note">A <code>description</code> é o <b>docstring inteiro</b> da função. O schema vem da assinatura e <b>não restringe</b> os valores: quem rejeita <code>"nginx"</code> é o código (<code>net_tools.py:208</code>). O docstring informa; o código impede.</div>
+
+    <h3>Quando o servidor MCP existe</h3>
+    <div class="flow">
+      <div class="st"><b>1 · incidente</b><code>agent.investigate()</code> grava <code>mcp_config.json</code></div>
+      <div class="st"><b>2 · claude -p</b>recebe <code>--mcp-config</code> e <code>--strict-mcp-config</code></div>
+      <div class="st"><b>3 · Claude Code</b>executa o comando do JSON: <code>python mcp_server.py</code></div>
+      <div class="st"><b>4 · handshake</b>pergunta as ferramentas e entrega a lista ao modelo</div>
+      <div class="st"><b>5 · fim</b>o <code>claude -p</code> termina e o servidor MCP morre junto</div>
+    </div>
+    <div class="note">Um processo novo por incidente; sem incidente, não há servidor MCP. Quem sobe o servidor é o Claude Code, seguindo o arquivo de configuração. Não há descoberta automática.</div>
+  </section>
+
   <!-- 4. POLÍTICA -->
   <section id="politica" class="reveal">
-    <div class="sh"><div class="num">4</div><h2>Quando o agente pode reiniciar um serviço?</h2></div>
+    <div class="sh"><div class="num">6</div><h2>Quando o agente pode reiniciar um serviço?</h2></div>
     <p class="sub">A política está no prompt (<code>agent_prompt.md</code>) e é reforçada no código: mesmo que o modelo erre, <code>restart_service</code> só aceita os serviços do laboratório.</p>
     <div class="stage">
     <svg viewBox="0 0 900 340" role="img" aria-label="Árvore de decisão da remediação">
@@ -359,7 +442,7 @@
 
   <!-- 5. SEGURANÇA -->
   <section id="seguranca" class="reveal">
-    <div class="sh"><div class="num">5</div><h2>Por que o agente não consegue fazer estrago</h2></div>
+    <div class="sh"><div class="num">7</div><h2>Por que o agente não consegue fazer estrago</h2></div>
     <p class="sub">Princípio do menor privilégio: o Claude Code recebe a menor superfície possível. As flags estão em <code>agent.py</code>.</p>
     <div class="secgrid">
       <div class="sec"><div class="n">1</div><div><b>Sem ferramentas nativas</b><code>--tools ""</code><p>O agente não tem shell nem acesso a arquivos.</p></div></div>
@@ -372,7 +455,7 @@
 
   <!-- 6. LAB -->
   <section id="lab" class="reveal">
-    <div class="sh"><div class="num">6</div><h2>Por que o laboratório tem um controlador separado</h2></div>
+    <div class="sh"><div class="num">8</div><h2>Por que o laboratório tem um controlador separado</h2></div>
     <p class="sub">Problema real encontrado nos testes: o Claude Code encerra toda a árvore de processos ao terminar.</p>
     <div class="two">
       <div class="proc bad"><div class="hd">Antes <span>SERVIÇO MORRIA</span></div>
@@ -389,6 +472,33 @@ serviço morre</pre><div class="res">O monitor reverificava e o alvo ainda falha
      └─ db  :6543
 
 claude → mcp → net_tools ──JSON──► :8099</pre><div class="res">O agente só envia um comando; o serviço vive em outro processo.</div></div>
+    </div>
+
+    <h3>O comando JSON enviado ao controlador</h3>
+<pre class="code"><span class="c">→ TCP 127.0.0.1:8099, uma linha</span>
+{"cmd": "restart", "name": "web", "source": "agent"}
+<span class="c">← resposta</span>
+{"ok": true}</pre>
+    <div class="flow">
+      <div class="st"><b>LLM</b>decide chamar <code>restart_service</code></div>
+      <div class="st"><b>mcp_server.py (quem envia)</b><code>lab._send()</code> roda neste processo</div>
+      <div class="st"><b>lab.py run</b>recebe, para e sobe o serviço, e registra <code>restarted (by agent)</code></div>
+    </div>
+    <div class="note"><code>cmd</code> pode ser <code>restart</code>, <code>start</code>, <code>stop</code> ou <code>slow_services</code>. O campo <code>source</code> (<code>agent</code> ou <code>cli</code>) só alimenta o log. O mesmo canal é usado pelos comandos <code>lab.py stop/start</code>. Não há autenticação: a porta escuta só em 127.0.0.1, o que basta para um laboratório.</div>
+  </section>
+
+  <!-- ARQUIVOS -->
+  <section id="arquivos" class="reveal">
+    <div class="sh"><div class="num">9</div><h2>Os arquivos de <code>src/</code></h2></div>
+    <p class="sub">Seis módulos Python e um prompt. O monitor e o agente usam o mesmo <code>net_tools.py</code>, então medem tudo do mesmo jeito.</p>
+    <div class="cards">
+      <div class="tcard" style="--c:var(--mon)"><div class="layer-chip">Sem IA</div><div class="fn">monitor.py</div><p>Loop de polling: testa os alvos, imprime OK/FAIL, aciona o agente em OK → FAIL e reverifica depois.</p><div class="how">--once · --no-agent · --interval N</div></div>
+      <div class="tcard" style="--c:var(--ai)"><div class="layer-chip">Ponte</div><div class="fn">agent.py</div><p>Executa o <code>claude -p</code> restrito, remove a API key, mostra as chamadas ao vivo (timeout de 180 s) e salva o relatório.</p><div class="how">investigate() · save_report()</div></div>
+      <div class="tcard" style="--c:var(--ai)"><div class="layer-chip">Instruções</div><div class="fn">agent_prompt.md</div><p>Camadas de diagnóstico, política de reinício, serviços do lab e formato do relatório (português, até 200 palavras).</p><div class="how">prompt de sistema</div></div>
+      <div class="tcard" style="--c:var(--tool)"><div class="layer-chip">Ferramentas</div><div class="fn">net_tools.py</div><p>As 6 funções: ping, dns_lookup, check_port, check_http, traceroute, restart_service. Todas devolvem JSON com <code>ok</code>.</p><div class="how">também é CLI de teste</div></div>
+      <div class="tcard" style="--c:var(--tool)"><div class="layer-chip">Adaptador</div><div class="fn">mcp_server.py</div><p>Registra cada função de <code>ALL_TOOLS</code> no FastMCP. Fala por stdin/stdout, então nada pode imprimir nele.</p><div class="how">16 linhas</div></div>
+      <div class="tcard" style="--c:var(--lab)"><div class="layer-chip">Laboratório</div><div class="fn">lab.py</div><p>Serviços falsos (web :8080, db :6543), controlador (:8099) e os comandos de cenário: stop, start, slow, dns-fail, dns-ok, status.</p><div class="how">python src/lab.py run</div></div>
+      <div class="tcard" style="--c:var(--ext)"><div class="layer-chip">Infra</div><div class="fn">paths.py</div><p>Só constantes com os caminhos do projeto, calculadas a partir do próprio arquivo, então os comandos funcionam de qualquer pasta. Não cria pastas.</p><div class="how">8 constantes</div></div>
     </div>
   </section>
 
@@ -416,7 +526,7 @@ function tool(title, desc, call, result, okRes, layer, state, opts={}) {
 function opening(alertText, why) {
   return [
     {t:"O monitor verifica os alvos", n:["targets","monitor","net"], e:["e-t-m","e-m-net"],
-     d:"A cada 10 s o monitor lê <code>targets.json</code> e testa cada alvo (ping, TCP ou HTTP). Nenhuma IA aqui: é código determinístico, barato e previsível.",
+     d:"A cada 10 s o monitor lê <code>targets.json</code> e testa cada alvo (ping, TCP ou HTTP). Ninguém o avisa do <code>stop web</code>: ele só percebe porque o teste falha. Sem IA aqui.",
      log:[["info","[10:42:07] checking 5 targets..."],["fail","  [FAIL] web-lab      "+alertText]]},
     {t:"Transição OK → FAIL: dispara o agente", n:["monitor","agent"], e:["e-m-a"],
      d:"O alvo estava OK no ciclo anterior e agora falhou. "+why,
@@ -443,9 +553,9 @@ const SCENARIOS = {
     steps:[
       ...opening("GET http://127.0.0.1:8080/ failed: connection refused", "A causa ainda é desconhecida."),
       tool("Rede: o host responde?","O agente começa pelas camadas de baixo: ping em 127.0.0.1.","ping('127.0.0.1')","ok · 0% perda · 1 ms",true,"icmp","ok"),
-      {...tool("Transporte: a porta está aberta?","<code>check_port</code> distingue <i>closed</i> (host vivo, nada escutando) de <i>timeout</i>. Aqui a conexão foi recusada: o serviço está parado.","check_port('127.0.0.1', 8080)","FAIL · state: closed · connection refused",false,"tcp","fail"),
+      {...tool("Transporte: a porta está aberta?","<code>check_port</code> distingue <i>closed</i> (host vivo, nada escutando) de <i>timeout</i>. Aqui a conexão foi recusada: no lab, a explicação mais provável é serviço parado.","check_port('127.0.0.1', 8080)","FAIL · state: closed · connection refused",false,"tcp","fail"),
        layer:{tcp:"fail", dns:"skip"}, decision:["wait","Hipótese: serviço parado. Conferindo a política de remediação..."]},
-      {...tool("Remediação: reinicia o serviço","O alvo é do laboratório <b>e</b> a porta está fechada, então a política permite. O <code>net_tools</code> manda um comando JSON ao controlador do lab (:8099).","restart_service('web')","ok · state: running · port: 8080",true,"tcp","ok",{lab:true}),
+      {...tool("Remediação: reinicia o serviço","O alvo é do laboratório <b>e</b> a porta está fechada, então a política permite. O processo <code>mcp_server.py</code> envia ao controlador (:8099) a linha <code>{\"cmd\":\"restart\",\"name\":\"web\",\"source\":\"agent\"}</code>.","restart_service('web')","ok · state: running · port: 8080",true,"tcp","ok",{lab:true}),
        decision:["yes","Reiniciou <b>web</b>: alvo do lab e porta fechada."]},
       tool("Confirmação: o serviço voltou?","Depois de agir, o agente confere o resultado.","check_http('http://127.0.0.1:8080/')","ok · HTTP 200 · 29 ms",true,"http","ok"),
       ...closing(true,"OK (HTTP 200 in 9 ms)"),
