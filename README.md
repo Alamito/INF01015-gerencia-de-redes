@@ -56,6 +56,7 @@ O passo a passo completo, com as saídas esperadas, está em [`docs/TUTORIAL.md`
 | `python src/monitor.py --once` | roda um único ciclo de verificação |
 | `python src/monitor.py --no-agent` | só monitora, nunca chama a IA |
 | `python src/monitor.py --interval 30` | muda o intervalo entre ciclos (segundos) |
+| `python src/monitor.py --mcp-trace raw` | mostra o JSON completo de cada mensagem MCP (`compact` é o padrão; `off` desliga) |
 | `python src/agent.py "<descrição do problema>"` | aciona o agente manualmente |
 | `python src/net_tools.py ping 8.8.8.8` | testa uma ferramenta isolada |
 
@@ -72,6 +73,29 @@ O padrão é o **Claude Sonnet**. Nos testes, Sonnet, Haiku e Opus resolveram to
 
 O modelo usado aparece no console no início de cada investigação (`[agent] model: ...`).
 
+## Comunicação agente ↔ MCP
+Durante cada investigação, o monitor mostra ao vivo as duas camadas da conversa:
+- **`[LLM]`:** o que o modelo decidiu fazer (qual ferramenta chamar, com quais argumentos);
+- **`[MCP]`:** as mensagens **JSON-RPC 2.0** trocadas por stdio entre o Claude Code (cliente MCP) e
+  o nosso servidor MCP: negociação do protocolo, catálogo de ferramentas, cada `tools/call` e sua resposta.
+
+```
+[MCP] client → server  #0 initialize       protocol 2025-11-25, client claude-code 2.1.300
+[MCP] server → client  #0 result           server netsentinel 1.30.0, capabilities: experimental, prompts, resources, tools
+[MCP] client → server     notifications/initialized
+[MCP] client → server  #1 tools/list
+[MCP] server → client  #1 result           6 tools: ping, dns_lookup, check_port, check_http, traceroute, restart_service
+[LLM] decides to call check_port('127.0.0.1', 8080)
+[MCP] client → server  #4 tools/call       check_port {"host": "127.0.0.1", "port": 8080}
+[MCP] server → client  #4 result           {"ok": false, "host": "127.0.0.1", "port": 8080, "state": "closed", ...}
+```
+
+Como funciona: o Claude Code não inicia o `mcp_server.py` diretamente, e sim o `src/mcp_tap.py`, um
+proxy transparente que repassa as mensagens sem alterá-las e grava cada uma num arquivo. O monitor lê esse
+arquivo enquanto o agente trabalha. A conversa completa de cada incidente é salva em
+`reports/<data>_<alvo>_mcp.jsonl`, ao lado do relatório. Há um exemplo em
+[`docs/examples/mcp-trace/`](docs/examples/mcp-trace/).
+
 ## Estrutura
 ```
 README.md
@@ -85,7 +109,10 @@ reports/                 # relatórios gerados (criada ao rodar; fora do git)
 ## Arquitetura
 ```
 config/targets.json ──► monitor.py ──(OK → FAIL)──► agent.py ──► claude -p (assinatura)
-                                                                    │ MCP (stdio)
+                           ▲                                        │ MCP / JSON-RPC (stdio)
+                           │ mensagens MCP ao vivo                   ▼
+                     mcp_view.py ◄── .netsentinel/mcp_trace.jsonl ◄── mcp_tap.py (proxy)
+                                                                    │
                                                                     ▼
                                           lab.py ◄── net_tools.py ◄── mcp_server.py
 ```
@@ -97,6 +124,8 @@ config/targets.json ──► monitor.py ──(OK → FAIL)──► agent.py �
 | `src/agent_prompt.md` | prompt de sistema do agente (regras de diagnóstico, remediação e formato do relatório) |
 | `src/net_tools.py` | ferramentas de rede: `ping`, `dns_lookup`, `check_port`, `check_http`, `traceroute`, `restart_service` |
 | `src/mcp_server.py` | expõe as funções de `net_tools.py` como ferramentas MCP |
+| `src/mcp_tap.py` | proxy transparente entre o Claude Code e o servidor MCP que registra cada mensagem JSON-RPC |
+| `src/mcp_view.py` | mostra no console, ao vivo, as mensagens registradas pelo proxy |
 | `src/lab.py` | controlador do laboratório: hospeda os serviços falsos, recebe comandos na porta 8099 e liga/desliga o cenário de DNS |
 | `src/paths.py` | caminhos do projeto usados por todos os módulos |
 | `config/targets.json` | alvos monitorados (`type`: `http`, `tcp` ou `ping`; `lab_service` e `slow_threshold_ms` opcionais) |

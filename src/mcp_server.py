@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 
 import net_tools
 
-mcp = FastMCP("netsentinel")
+mcp = FastMCP("netsentinel", log_level="WARNING")
 
 for tool in net_tools.ALL_TOOLS:
     mcp.tool()(tool)

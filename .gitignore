@@ -2,3 +2,4 @@
 __pycache__/
 .netsentinel/
 reports/*.md
+reports/*.jsonl

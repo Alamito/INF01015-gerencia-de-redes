@@ -5,6 +5,11 @@ use the NetSentinel MCP tools defined in mcp_server.py.
 
 Manual test:
     python src/agent.py "web-lab at http://127.0.0.1:8080/ is not responding (lab service: web)"
+
+MCP trace modes (how the Claude Code <-> MCP server messages are shown):
+    "compact"  one summarized line per JSON-RPC message (default)
+    "raw"      the full JSON of every message
+    "off"      no MCP trace; only the tool calls and results seen by the model
 """
 
 import json
@@ -16,7 +21,8 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from paths import MCP_SERVER, PROJECT_DIR, PROMPT_FILE, REPORTS_DIR, STATE_DIR
+from mcp_view import McpTraceViewer, emit, emit_llm
+from paths import MCP_SERVER, MCP_TAP, MCP_TRACE_FILE, PROJECT_DIR, PROMPT_FILE, REPORTS_DIR, STATE_DIR
 
 MCP_SERVER_NAME = "netsentinel"
 TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
@@ -24,21 +30,23 @@ TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
 # scenario in our tests. Override with the NETSENTINEL_MODEL environment variable.
 MODEL = os.environ.get("NETSENTINEL_MODEL") or "sonnet"
 TIMEOUT_S = 180
+MCP_TRACE_MODES = ("compact", "raw", "off")
 
 
 class AgentError(Exception):
     pass
 
 
-def investigate(target: dict, error: str) -> str:
+def investigate(target: dict, error: str, mcp_trace: str = "compact") -> str:
     """Run the agent for a failed target and return the markdown report."""
     claude = shutil.which("claude")
     if not claude:
         raise AgentError("Claude Code CLI ('claude') not found in PATH. Install it and run 'claude' once to log in.")
+    tracing = mcp_trace != "off"
 
     command = [
         claude, "-p",
-        "--mcp-config", str(_write_mcp_config()),
+        "--mcp-config", str(_write_mcp_config(tracing)),
         "--strict-mcp-config",
         "--tools", "",
         "--allowedTools", "mcp__" + MCP_SERVER_NAME,
@@ -52,7 +60,13 @@ def investigate(target: dict, error: str) -> str:
 
     env = os.environ.copy()
     if env.pop("ANTHROPIC_API_KEY", None):
-        print("[agent] ANTHROPIC_API_KEY ignored: using the Claude subscription instead of the paid API")
+        emit("[agent] ANTHROPIC_API_KEY ignored: using the Claude subscription instead of the paid API")
+
+    viewer = None
+    if tracing:
+        MCP_TRACE_FILE.write_text("", encoding="utf-8")  # one trace per investigation
+        viewer = McpTraceViewer(MCP_TRACE_FILE, raw=mcp_trace == "raw")
+        viewer.start()
 
     process = subprocess.Popen(
         command,
@@ -77,10 +91,12 @@ def investigate(target: dict, error: str) -> str:
     timer = threading.Timer(TIMEOUT_S, process.kill)
     timer.start()
     try:
-        result = _consume_stream(process.stdout)
+        result = _consume_stream(process.stdout, show_results=not tracing)
         process.wait()
     finally:
         timer.cancel()
+        if viewer:
+            viewer.stop()
     stderr_reader.join(timeout=5)
 
     if result is None:
@@ -94,23 +110,35 @@ def investigate(target: dict, error: str) -> str:
 
 
 def save_report(target_name: str, report: str) -> Path:
-    """Save a report as reports/YYYY-MM-DD_HHMM_<target>.md and return its path."""
+    """Save a report as reports/YYYY-MM-DD_HHMMSS_<target>.md and return its path.
+
+    The MCP trace of the investigation, when there is one, is saved next to it
+    as <same name>_mcp.jsonl.
+    """
     REPORTS_DIR.mkdir(exist_ok=True)
     now = datetime.now()
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in target_name)
     path = REPORTS_DIR / f"{now:%Y-%m-%d_%H%M%S}_{safe_name}.md"
     header = f"# Incidente: {target_name}\n\n_{now:%Y-%m-%d %H:%M:%S}_\n\n"
-    path.write_text(header + report + "\n", encoding="utf-8", newline="\n")
+    footer = ""
+    if MCP_TRACE_FILE.exists() and MCP_TRACE_FILE.stat().st_size > 0:
+        trace_path = path.with_name(path.stem + "_mcp.jsonl")
+        shutil.copyfile(MCP_TRACE_FILE, trace_path)
+        MCP_TRACE_FILE.write_text("", encoding="utf-8")
+        footer = f"\n\n_Comunicação MCP (JSON-RPC) desta investigação: `{trace_path.name}`_"
+    path.write_text(header + report + footer + "\n", encoding="utf-8", newline="\n")
     return path
 
 
-def _write_mcp_config() -> Path:
+def _write_mcp_config(tracing: bool) -> Path:
     # Generated at runtime so the MCP server uses this same interpreter (the venv).
+    # With tracing, Claude Code starts the tap proxy, which starts the real server.
     STATE_DIR.mkdir(exist_ok=True)
     path = STATE_DIR / "mcp_config.json"
+    args = [str(MCP_TAP), str(MCP_TRACE_FILE)] if tracing else [str(MCP_SERVER)]
     config = {
         "mcpServers": {
-            MCP_SERVER_NAME: {"type": "stdio", "command": sys.executable, "args": [str(MCP_SERVER)]}
+            MCP_SERVER_NAME: {"type": "stdio", "command": sys.executable, "args": args}
         }
     }
     path.write_text(json.dumps(config, indent=2), encoding="utf-8")
@@ -130,8 +158,12 @@ def _build_alert(target: dict, error: str) -> str:
     )
 
 
-def _consume_stream(stdout) -> dict | None:
-    """Print the agent's tool calls live and return the final 'result' event."""
+def _consume_stream(stdout, show_results: bool) -> dict | None:
+    """Print the agent's tool calls live and return the final 'result' event.
+
+    With the MCP trace on, tool results are not printed here: they already appear
+    as MCP responses.
+    """
     result = None
     for line in stdout:
         line = line.strip()
@@ -144,18 +176,18 @@ def _consume_stream(stdout) -> dict | None:
 
         kind = event.get("type")
         if kind == "system" and event.get("subtype") == "init":
-            print(f"[agent] model: {event.get('model', 'unknown')}", flush=True)
+            emit(f"[agent] model: {event.get('model', 'unknown')}")
             for server in event.get("mcp_servers", []):
                 if server.get("name") == MCP_SERVER_NAME and server.get("status") != "connected":
-                    print(f"[agent] warning: MCP server status is '{server.get('status')}'")
+                    emit(f"[agent] warning: MCP server status is '{server.get('status')}'")
         elif kind == "assistant":
             for block in event.get("message", {}).get("content", []):
                 if block.get("type") == "tool_use":
-                    print(f"  -> {_format_call(block)}", flush=True)
-        elif kind == "user":
+                    emit_llm(f"decides to call {_format_call(block)}")
+        elif kind == "user" and show_results:
             for block in event.get("message", {}).get("content", []):
                 if isinstance(block, dict) and block.get("type") == "tool_result":
-                    print(f"     {_format_tool_result(block)}", flush=True)
+                    emit(f"      {_format_tool_result(block)}")
         elif kind == "result":
             result = event
     return result
@@ -188,6 +220,8 @@ def _format_tool_result(block: dict) -> str:
 
 def main(argv: list[str]) -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if sys.platform == "win32":
+        os.system("")  # enables ANSI colors in the classic Windows console
     if not argv:
         print(__doc__)
         return 1

@@ -11,3 +11,5 @@ STATE_DIR = PROJECT_DIR / ".netsentinel"
 
 PROMPT_FILE = SRC_DIR / "agent_prompt.md"
 MCP_SERVER = SRC_DIR / "mcp_server.py"
+MCP_TAP = SRC_DIR / "mcp_tap.py"
+MCP_TRACE_FILE = STATE_DIR / "mcp_trace.jsonl"

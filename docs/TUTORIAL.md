@@ -122,6 +122,14 @@ investigação (`[agent] model: claude-sonnet-...`). Para testar com outro model
 Nos testes, os três modelos resolveram todos os cenários. As saídas abaixo são do Sonnet; com outro
 modelo, a ordem e a quantidade de chamadas de ferramenta podem mudar um pouco.
 
+### O que aparece durante uma investigação
+Cada investigação mostra duas camadas, uma linha por evento:
+- **`[LLM]`** (roxo): a decisão do modelo de chamar uma ferramenta;
+- **`[MCP]`** (ciano): as mensagens JSON-RPC trocadas entre o Claude Code (`client`) e o nosso servidor
+  MCP (`server`). Uma requisição e sua resposta têm o mesmo número (`#4` → `#4`).
+
+A seção 6 explica essa comunicação em detalhes.
+
 > **Regra importante:** o agente só é acionado quando um alvo **passa de OK para FAIL**. Se um alvo
 > continuar falhando, ele não é investigado de novo. Por isso, **antes de cada cenário confirme que tudo
 > voltou a `[OK]`** no T2.
@@ -144,29 +152,34 @@ No próximo ciclo (até 10 s) o monitor detecta a falha e aciona o agente:
 [monitor] ALERT: web-lab: GET http://127.0.0.1:8080/ failed: connection error: connection refused
 [agent] investigating web-lab...
 [agent] model: claude-sonnet-5-5
-  -> ping('127.0.0.1')
-  -> check_port('127.0.0.1', 8080)
-     <- ok {"host": "127.0.0.1", "loss_pct": 0, "latency_ms": 1.0}
-     <- FAIL {"host": "127.0.0.1", "port": 8080, "state": "closed", "error": "connection refused"}
-  -> restart_service('web')
-     <- ok {"name": "web", "state": "running", "port": 8080}
-  -> check_http('http://127.0.0.1:8080/')
-     <- ok {"url": "http://127.0.0.1:8080/", "status": 200, "time_ms": 29}
+[LLM] decides to call check_port('127.0.0.1', 8080)
+[MCP] client → server  #4 tools/call       check_port {"host": "127.0.0.1", "port": 8080}
+[LLM] decides to call ping('127.0.0.1')
+[MCP] server → client  #4 result           {"ok": false, "host": "127.0.0.1", "port": 8080, "state": "closed", "error": "connection refused"}
+[MCP] client → server  #5 tools/call       ping {"host": "127.0.0.1"}
+[MCP] server → client  #5 result           {"ok": true, "host": "127.0.0.1", "loss_pct": 0, "latency_ms": 1.0}
+[LLM] decides to call restart_service('web')
+[MCP] client → server  #6 tools/call       restart_service {"name": "web"}
+[MCP] server → client  #6 result           {"ok": true, "name": "web", "state": "running", "port": 8080}
+[LLM] decides to call check_http('http://127.0.0.1:8080/')
+[MCP] client → server  #7 tools/call       check_http {"url": "http://127.0.0.1:8080/"}
+[MCP] server → client  #7 result           {"ok": true, "url": "http://127.0.0.1:8080/", "status": 200, "time_ms": 29}
 ```
-O agente testa a rede (`ping`) e a porta **em paralelo**: o host responde, mas a porta está fechada,
-então o serviço caiu.
+(as mensagens iniciais de conexão MCP, explicadas na seção 6, foram omitidas)
+
+O agente testa a porta e a rede: o host responde (`ping` ok), mas a porta está fechada, então o serviço caiu.
 Em seguida aparece o relatório (seções Resumo, Evidências, Causa provável, Ação tomada e
 Recomendação), e no final:
 ```
-[monitor] verification: OK (HTTP 200 in 9 ms)
-[monitor] report saved to reports\2026-10-01_142056_web-lab.md
+[monitor] verification: OK (HTTP 200 in 27 ms)
+[monitor] report saved to reports\2026-10-14_180742_web-lab.md
 ```
 
 ### Passo 3: conferir o T1
 O laboratório registra quem fez cada ação:
 ```
-[13:46:08] web stopped (by cli)
-[13:46:30] web restarted (by agent)
+[18:07:17] web stopped (by cli)
+[18:07:36] web restarted (by agent)
 ```
 
 ✅ **Deu certo se:** o agente chamou `restart_service('web')`, a verificação do monitor deu `OK` e o
@@ -175,14 +188,18 @@ O laboratório registra quem fez cada ação:
 **Variação com o banco:** `python src/lab.py stop db`. O agente verifica a porta 6543, reinicia o
 serviço `db` e confirma com `check_port`:
 ```
-  -> ping('127.0.0.1')
-  -> check_port('127.0.0.1', 6543)
-     <- ok {"host": "127.0.0.1", "loss_pct": 0, "latency_ms": 1.0}
-     <- FAIL {"host": "127.0.0.1", "port": 6543, "state": "closed", "error": "connection refused"}
-  -> restart_service('db')
-     <- ok {"name": "db", "state": "running", "port": 6543}
-  -> check_port('127.0.0.1', 6543)
-     <- ok {"host": "127.0.0.1", "port": 6543, "state": "open", "time_ms": 0.8}
+[LLM] decides to call check_port('127.0.0.1', 6543)
+[MCP] client → server  #4 tools/call       check_port {"host": "127.0.0.1", "port": 6543}
+[LLM] decides to call ping('127.0.0.1')
+[MCP] server → client  #4 result           {"ok": false, "host": "127.0.0.1", "port": 6543, "state": "closed", "error": "connection refused"}
+[MCP] client → server  #5 tools/call       ping {"host": "127.0.0.1"}
+[MCP] server → client  #5 result           {"ok": true, "host": "127.0.0.1", "loss_pct": 0, "latency_ms": 1.0}
+[LLM] decides to call restart_service('db')
+[MCP] client → server  #6 tools/call       restart_service {"name": "db"}
+[MCP] server → client  #6 result           {"ok": true, "name": "db", "state": "running", "port": 6543}
+[LLM] decides to call check_port('127.0.0.1', 6543)
+[MCP] client → server  #7 tools/call       check_port {"host": "127.0.0.1", "port": 6543}
+[MCP] server → client  #7 result           {"ok": true, "host": "127.0.0.1", "port": 6543, "state": "open", "time_ms": 17.2}
 [monitor] verification: OK (port 6543 open)
 ```
 
@@ -207,18 +224,24 @@ Cada resposta HTTP passa a demorar 5 s, acima do limite de 2000 ms configurado n
 [monitor] ALERT: web-lab: GET http://127.0.0.1:8080/ too slow: 5005 ms (threshold 2000 ms)
 [agent] investigating web-lab...
 [agent] model: claude-sonnet-5-5
-  -> ping('127.0.0.1')
-  -> check_port('127.0.0.1', 8080)
-  -> check_http('http://127.0.0.1:8080/')
-     <- ok {"host": "127.0.0.1", "loss_pct": 0, "latency_ms": 1.0}
-     <- ok {"host": "127.0.0.1", "port": 8080, "state": "open", "time_ms": 23.8}
-     <- ok {"url": "http://127.0.0.1:8080/", "status": 200, "time_ms": 5009}
+[LLM] decides to call ping('127.0.0.1')
+[MCP] client → server  #4 tools/call       ping {"host": "127.0.0.1"}
+[LLM] decides to call check_port('127.0.0.1', 8080)
+[LLM] decides to call check_http('http://127.0.0.1:8080/')
+[MCP] server → client  #4 result           {"ok": true, "host": "127.0.0.1", "loss_pct": 0, "latency_ms": 1.0}
+[MCP] client → server  #5 tools/call       check_port {"host": "127.0.0.1", "port": 8080}
+[MCP] server → client  #5 result           {"ok": true, "host": "127.0.0.1", "port": 8080, "state": "open", "time_ms": 9.5}
+[MCP] client → server  #6 tools/call       check_http {"url": "http://127.0.0.1:8080/"}
+[MCP] server → client  #6 result           {"ok": true, "url": "http://127.0.0.1:8080/", "status": 200, "time_ms": 5020}
 ```
-As três camadas são testadas em paralelo: rede ok, porta aberta, HTTP 200, mas em 5 s.
+(as mensagens iniciais de conexão MCP, explicadas na seção 6, foram omitidas)
+
+O modelo pede as três camadas de uma vez (rede, porta e HTTP), e o Claude Code executa as chamadas MCP
+uma após a outra. Resultado: rede ok, porta aberta, HTTP 200, mas em 5 s.
 O relatório deve dizer que a porta está aberta e o HTTP responde (status 200), mas devagar, ou seja,
 um **problema na camada de aplicação**, e que **nenhuma ação foi tomada**. No final:
 ```
-[monitor] verification: still failing (GET http://127.0.0.1:8080/ too slow: 5013 ms (threshold 2000 ms))
+[monitor] verification: still failing (GET http://127.0.0.1:8080/ too slow: 5017 ms (threshold 2000 ms))
 ```
 Isso é o esperado: o agente não corrigiu, porque a política só permite reiniciar serviços fora do ar.
 
@@ -256,12 +279,16 @@ então **não precisa reiniciar o T2**.
 [monitor] ALERT: broken-dns: GET http://netsentinel-nonexistent-domain.xyz/ failed: connection error: name resolution failed
 [agent] investigating broken-dns...
 [agent] model: claude-sonnet-5-5
-  -> dns_lookup('netsentinel-nonexistent-domain.xyz')
-  -> dns_lookup('www.ufrgs.br')
-     <- FAIL {"name": "netsentinel-nonexistent-domain.xyz", "error": "resolution failed: [Errno 11001] getaddrinfo failed"}
-     <- ok {"name": "www.ufrgs.br", "addresses": ["143.54.2.20", "2804:1f20:0:1::20"], "time_ms": 1.9}
+[LLM] decides to call dns_lookup('netsentinel-nonexistent-domain.xyz')
+[LLM] decides to call dns_lookup('www.ufrgs.br')
+[MCP] client → server  #4 tools/call       dns_lookup {"name": "netsentinel-nonexistent-domain.xyz"}
+[MCP] server → client  #4 result           {"ok": false, "name": "netsentinel-nonexistent-domain.xyz", "error": "resolution failed: [Errno 11001] getaddrinfo failed"}
+[MCP] client → server  #5 tools/call       dns_lookup {"name": "www.ufrgs.br"}
+[MCP] server → client  #5 result           {"ok": true, "name": "www.ufrgs.br", "addresses": ["143.54.2.20", "2804:1f20:0:1::20"], "time_ms": 2.0}
 ```
-O agente faz as duas consultas **em paralelo**: o domínio com problema e um domínio de controle.
+(as mensagens iniciais de conexão MCP, explicadas na seção 6, foram omitidas)
+
+O agente decide as duas consultas de uma vez: o domínio com problema e um domínio de controle.
 Se o controle resolve, o servidor DNS está funcionando e o problema é só daquele nome.
 O relatório deve apontar **falha de DNS** (domínio inexistente ou sem registro A/AAAA) e dizer que
 nada foi reiniciado, porque o alvo não é do laboratório.
@@ -278,7 +305,77 @@ e não chamou `restart_service`.
 
 ---
 
-## 6. Acionando o agente manualmente (sem o monitor)
+## 6. Vendo a comunicação entre o agente e o MCP
+
+**Objetivo:** mostrar, mensagem por mensagem, como o agente (Claude Code) conversa com o nosso servidor
+MCP pelo protocolo **JSON-RPC 2.0** sobre **stdio** (entrada e saída padrão do processo).
+
+### 6.1 Onde ver
+A comunicação já aparece no T2 em todos os cenários. Ela pode ser vista de três formas:
+
+| Forma | Como |
+|---|---|
+| Resumida, ao vivo (padrão) | `python src/monitor.py` |
+| JSON completo, ao vivo | `python src/monitor.py --mcp-trace raw` |
+| Arquivo da investigação | `reports/<data>_<alvo>_mcp.jsonl` (uma mensagem por linha, com horário e direção) |
+| Desligada | `python src/monitor.py --mcp-trace off` (mostra só as linhas `[LLM]` e os resultados) |
+
+Um exemplo real completo está em `docs/examples/mcp-trace/`.
+
+### 6.2 Lendo a conversa, linha por linha
+Início de uma investigação real (cenário 1):
+```
+[MCP] JSON-RPC 2.0 over stdio · client = Claude Code · server = netsentinel (src/mcp_server.py)
+[MCP] client → server  #server-discover-probe-1 server/discover  {"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28", ...
+[MCP] server → client  #server-discover-probe-1 error            -32602 Invalid request parameters
+[MCP] client → server  #0 initialize       protocol 2025-11-25, client claude-code 2.1.300
+[MCP] server → client  #0 result           server netsentinel 1.30.0, capabilities: experimental, prompts, resources, tools
+[MCP] client → server     notifications/initialized
+[MCP] client → server  #1 tools/list
+[MCP] client → server  #2 prompts/list
+[MCP] client → server  #3 resources/list
+[MCP] server → client  #1 result           6 tools: ping, dns_lookup, check_port, check_http, traceroute, restart_service
+[MCP] server → client  #2 result           0 prompts
+[MCP] server → client  #3 result           0 resources
+[agent] model: claude-sonnet-5-5
+[LLM] decides to call check_port('127.0.0.1', 8080)
+[MCP] client → server  #4 tools/call       check_port {"host": "127.0.0.1", "port": 8080}
+[MCP] server → client  #4 result           {"ok": false, "host": "127.0.0.1", "port": 8080, "state": "closed", "error": "connection refused"}
+```
+
+| Fase | Mensagens | O que acontece |
+|---|---|---|
+| 1. Negociação de versão | `server/discover` → `error -32602` | O Claude Code tenta primeiro uma versão mais nova do protocolo (2026-07-28). Nosso servidor (biblioteca `mcp` 1.30) não a conhece e responde com erro, então o cliente recua. |
+| 2. Inicialização | `initialize` → `result`, `notifications/initialized` | Cliente e servidor combinam a versão `2025-11-25` e trocam nome, versão e capacidades. A notificação não tem `#id`, porque não espera resposta. |
+| 3. Descoberta | `tools/list`, `prompts/list`, `resources/list` | O cliente pede o catálogo. O servidor anuncia as 6 ferramentas, com descrição e esquema dos parâmetros: é o que o modelo "lê" para decidir. |
+| 4. Uso | `[LLM]` → `tools/call` → `result` | O modelo decide uma chamada; o Claude Code a envia como `tools/call` com nome e argumentos; o servidor executa a função Python e devolve o JSON. |
+| 5. Encerramento | (fim do stdio) | Ao terminar o relatório, o Claude Code fecha a entrada do servidor e o processo termina. |
+
+**Para observar:**
+- **`#id` liga requisição e resposta:** `#4 tools/call` é respondido por `#4 result`. Isso é o JSON-RPC.
+- **Quem decide e quem executa:** a linha `[LLM]` é a decisão do modelo; a linha `[MCP]` é o protocolo levando
+  essa decisão até o servidor. O modelo nunca executa nada diretamente.
+- **Paralelo vs. sequencial:** quando o modelo decide duas chamadas juntas (duas linhas `[LLM]` seguidas),
+  o Claude Code ainda as envia ao servidor uma de cada vez (`#4` termina antes de `#5` começar).
+
+### 6.3 Como a captura funciona
+O Claude Code não inicia o `src/mcp_server.py` diretamente: ele inicia o `src/mcp_tap.py`, um proxy
+que inicia o servidor real, **repassa cada mensagem sem alterá-la** e grava uma cópia em
+`.netsentinel/mcp_trace.jsonl`. O `src/mcp_view.py` lê esse arquivo enquanto o agente trabalha e imprime
+cada mensagem no T2. Ao final, o registro é copiado para `reports/`, ao lado do relatório.
+
+```
+Claude Code ⇄ mcp_tap.py (proxy) ⇄ mcp_server.py
+                   │
+                   └─► .netsentinel/mcp_trace.jsonl ─► mcp_view.py ─► console do monitor
+```
+
+✅ **Deu certo se:** no T2 aparecem as linhas `[MCP]` de `initialize`, `tools/list` e `tools/call`, e em
+`reports/` existe um arquivo `_mcp.jsonl` para cada relatório.
+
+---
+
+## 7. Acionando o agente manualmente (sem o monitor)
 
 Útil para testar o prompt ou mostrar o agente isolado. Com o T1 rodando:
 ```bash
@@ -288,17 +385,17 @@ O agente investiga a partir da descrição e salva o relatório como `reports/<d
 
 ---
 
-## 7. Onde ver os resultados
+## 8. Onde ver os resultados
 
 - **Relatórios:** pasta `reports/`, um arquivo `.md` por incidente, com o relatório da IA e a
-  verificação final do monitor.
+  verificação final do monitor, e um `_mcp.jsonl` com a comunicação MCP da investigação.
 - **Log do laboratório:** terminal T1 (quem parou, iniciou ou reiniciou cada serviço).
 - **Exemplos prontos:** `docs/examples/`, com relatórios reais dos 4 cenários gerados pelo Sonnet,
   pelo Haiku e pelo Opus.
 
 ---
 
-## 8. Problemas comuns
+## 9. Problemas comuns
 
 | Sintoma | Causa / solução |
 |---|---|

@@ -6,6 +6,7 @@ Usage:
     python src/monitor.py --once          run a single cycle
     python src/monitor.py --no-agent      only monitor, never call the AI
     python src/monitor.py --interval 30   change the check interval (seconds)
+    python src/monitor.py --mcp-trace raw show the full JSON of each MCP message (compact|raw|off)
 """
 
 import argparse
@@ -58,10 +59,10 @@ def check_target(target: dict) -> tuple[bool, str]:
     return False, f"unknown target type '{kind}'"
 
 
-def handle_incident(target: dict, error: str) -> None:
+def handle_incident(target: dict, error: str, mcp_trace: str) -> None:
     print(f"{YELLOW}[agent] investigating {target['name']}...{RESET}", flush=True)
     try:
-        report = agent.investigate(target, error)
+        report = agent.investigate(target, error, mcp_trace=mcp_trace)
     except agent.AgentError as exc:
         print(f"{RED}[agent] {exc}{RESET}")
         return
@@ -76,7 +77,7 @@ def handle_incident(target: dict, error: str) -> None:
     print(f"{DIM}[monitor] report saved to {path.relative_to(PROJECT_DIR)}{RESET}\n")
 
 
-def run_cycle(previous: dict[str, bool], use_agent: bool) -> None:
+def run_cycle(previous: dict[str, bool], use_agent: bool, mcp_trace: str = "compact") -> None:
     targets = load_targets()
     # Forget disabled targets, so re-enabling one counts as a fresh start.
     active_names = {target["name"] for target in targets}
@@ -97,7 +98,7 @@ def run_cycle(previous: dict[str, bool], use_agent: bool) -> None:
     for target, detail in incidents:
         print(f"{RED}[monitor] ALERT: {target['name']}: {detail}{RESET}")
         if use_agent:
-            handle_incident(target, detail)
+            handle_incident(target, detail, mcp_trace)
             previous[target["name"]] = check_target(target)[0]
 
 
@@ -106,6 +107,8 @@ def main() -> int:
     parser.add_argument("--once", action="store_true", help="run a single check cycle")
     parser.add_argument("--no-agent", action="store_true", help="never call the AI agent")
     parser.add_argument("--interval", type=int, default=10, help="seconds between cycles")
+    parser.add_argument("--mcp-trace", choices=agent.MCP_TRACE_MODES, default="compact",
+                        help="how to show the Claude Code <-> MCP server messages (default: compact)")
     args = parser.parse_args()
 
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -115,7 +118,7 @@ def main() -> int:
     previous: dict[str, bool] = {}
     try:
         while True:
-            run_cycle(previous, use_agent=not args.no_agent)
+            run_cycle(previous, use_agent=not args.no_agent, mcp_trace=args.mcp_trace)
             if args.once:
                 return 0
             time.sleep(args.interval)

@@ -33,7 +33,7 @@ limitações e referências. A seção 1 sugere uma estrutura; as demais trazem 
 | Modelos testados | Claude Sonnet 5.5, Claude Haiku 4.5 e Claude Opus 5.5 |
 | Protocolo de ferramentas | MCP (Model Context Protocol), transporte stdio |
 | Dependências | `mcp`, `requests`, `truststore` (ver `requirements.txt`) |
-| Tamanho do código | cerca de 900 linhas de Python em 6 módulos, mais o prompt do agente (36 linhas) |
+| Tamanho do código | cerca de 1150 linhas de Python em 8 módulos, mais o prompt do agente (36 linhas) |
 
 ---
 
@@ -115,6 +115,21 @@ Um **servidor MCP** anuncia suas ferramentas (nome, descrição e esquema JSON d
 no NetSentinel, o transporte é **stdio** (o Claude Code inicia o servidor como subprocesso).
 O papel do MCP lembra o de MIB + SNMP: é um contrato padronizado entre quem decide e quem expõe as operações.
 
+As mensagens seguem o JSON-RPC 2.0:
+
+| Tipo | Campos | Exemplo no NetSentinel |
+|---|---|---|
+| Requisição | `id`, `method`, `params` | `{"id": 4, "method": "tools/call", "params": {"name": "check_port", ...}}` |
+| Resposta | `id`, `result` ou `error` | `{"id": 4, "result": {"content": [{"type": "text", "text": "{\"ok\": false, ...}"}]}}` |
+| Notificação | `method`, sem `id` | `{"method": "notifications/initialized"}` (não espera resposta) |
+
+Uma sessão MCP tem três fases:
+1. **inicialização**: `initialize` negocia a versão do protocolo e as capacidades;
+2. **descoberta**: `tools/list` devolve o catálogo de ferramentas;
+3. **uso**: `tools/call` executa uma ferramenta.
+
+Comparando com o SNMP: `tools/list` faz um papel parecido com a leitura da MIB, e `tools/call`, com um `GET`/`SET`.
+
 ---
 
 ## 5. Arquitetura
@@ -124,8 +139,11 @@ O papel do MCP lembra o de MIB + SNMP: é um contrato padronizado entre quem dec
                      │ transição OK → FAIL
                      ▼
                 agent.py ──subprocess──► claude -p (Claude Code, assinatura)
-                     ▲                        │ chamadas de ferramenta via MCP (stdio)
+                     ▲                        │ MCP: JSON-RPC 2.0 sobre stdio
                      │ relatório (Markdown)    ▼
+                     │                  mcp_tap.py (proxy) ──► .netsentinel/mcp_trace.jsonl ──► mcp_view.py (console)
+                     │                        │ repassa as mensagens sem alterar
+                     │                        ▼
                      │                  mcp_server.py ──► net_tools.py
                      │                                    ping, dns_lookup, check_port,
           reports/<data>_<alvo>.md                       check_http, traceroute, restart_service
@@ -140,8 +158,10 @@ O papel do MCP lembra o de MIB + SNMP: é um contrato padronizado entre quem dec
 2. Se um alvo que estava OK falha, o monitor gera um alerta com a descrição da falha.
 3. O `agent.py` monta a mensagem do alerta (alvo, erro observado, se é serviço do laboratório) e executa
    o `claude -p`, enviando o alerta pela entrada padrão.
-4. O Claude Code inicia o servidor MCP e o modelo chama as ferramentas que achar necessárias.
-5. Cada chamada e cada resultado aparecem no console em tempo real (eventos `stream-json`).
+4. O Claude Code inicia o servidor MCP (através do proxy `mcp_tap.py`), negocia o protocolo
+   (`initialize`), obtém o catálogo (`tools/list`), e o modelo chama as ferramentas que achar necessárias
+   (`tools/call`).
+5. Cada decisão do modelo (`[LLM]`) e cada mensagem MCP (`[MCP]`) aparecem no console em tempo real.
 6. O modelo escreve o relatório final, e o `agent.py` o devolve ao monitor.
 7. O monitor verifica o alvo novamente, anexa o resultado ao relatório e salva em `reports/`.
 
@@ -154,8 +174,10 @@ O papel do MCP lembra o de MIB + SNMP: é um contrato padronizado entre quem dec
 | `src/agent_prompt.md` | 36 | Prompt de sistema: método de diagnóstico, política de remediação, formato do relatório |
 | `src/net_tools.py` | 233 | Ferramentas de rede (funções Python puras, retornam JSON com a chave `ok`); também roda pela linha de comando |
 | `src/mcp_server.py` | 16 | Registra as funções de `net_tools.py` como ferramentas MCP (`FastMCP`) |
+| `src/mcp_tap.py` | 71 | Proxy stdio entre o Claude Code e o servidor MCP; grava cada mensagem JSON-RPC |
+| `src/mcp_view.py` | 127 | Exibe ao vivo, no console do monitor, as mensagens gravadas pelo proxy (resumidas ou completas) |
 | `src/lab.py` | 313 | Controlador do laboratório: serviços falsos, porta de controle e cenário de DNS |
-| `src/paths.py` | 13 | Caminhos do projeto compartilhados pelos módulos |
+| `src/paths.py` | 15 | Caminhos do projeto compartilhados pelos módulos |
 | `config/targets.json` | — | Alvos monitorados |
 
 ### 5.3 Organização do repositório
@@ -236,6 +258,39 @@ claude -p --mcp-config .netsentinel/mcp_config.json --strict-mcp-config --tools 
 
 ---
 
+### 6.6 Observabilidade da comunicação agente ↔ MCP
+Para que a comunicação entre o agente e o servidor MCP possa ser vista e analisada, o Claude Code não
+inicia o servidor diretamente. Ele inicia o `mcp_tap.py`, um **proxy transparente** que:
+1. inicia o servidor MCP real (`mcp_server.py`) como subprocesso;
+2. repassa, sem alterar, cada linha (mensagem JSON-RPC) do cliente para o servidor e vice-versa;
+3. grava uma cópia de cada mensagem, com horário e direção, em `.netsentinel/mcp_trace.jsonl`.
+
+Enquanto o agente trabalha, o `mcp_view.py` lê esse arquivo e imprime cada mensagem no monitor. O
+console intercala duas camadas:
+- **`[LLM]`:** a decisão do modelo, lida do stream do Claude Code;
+- **`[MCP]`:** a mensagem que efetivamente trafegou no protocolo.
+
+Ao final, o registro é salvo em `reports/<data>_<alvo>_mcp.jsonl`. A opção `--mcp-trace` do monitor
+escolhe o formato: `compact` (padrão, uma linha resumida por mensagem), `raw` (JSON completo) ou `off`.
+
+Trecho real (cenário 1):
+```
+[MCP] client → server  #0 initialize       protocol 2025-11-25, client claude-code 2.1.300
+[MCP] server → client  #0 result           server netsentinel 1.30.0, capabilities: experimental, prompts, resources, tools
+[MCP] client → server     notifications/initialized
+[MCP] client → server  #1 tools/list
+[MCP] server → client  #1 result           6 tools: ping, dns_lookup, check_port, check_http, traceroute, restart_service
+[LLM] decides to call check_port('127.0.0.1', 8080)
+[MCP] client → server  #4 tools/call       check_port {"host": "127.0.0.1", "port": 8080}
+[MCP] server → client  #4 result           {"ok": false, "host": "127.0.0.1", "port": 8080, "state": "closed", "error": "connection refused"}
+[LLM] decides to call restart_service('web')
+[MCP] client → server  #6 tools/call       restart_service {"name": "web"}
+[MCP] server → client  #6 result           {"ok": true, "name": "web", "state": "running", "port": 8080}
+```
+O registro completo dessa investigação (19 mensagens) está em `docs/examples/mcp-trace/`.
+
+---
+
 ## 7. Decisões de projeto e justificativas
 
 | Decisão | Alternativas consideradas | Justificativa |
@@ -250,6 +305,7 @@ claude -p --mcp-config .netsentinel/mcp_config.json --strict-mcp-config --tools 
 | Porta 6543 para o `db` | Porta 9000 (escolha inicial) | **Problema encontrado nos testes:** a 9000 caía numa faixa reservada pelo Windows (Hyper-V/WSL), `WinError 10013` |
 | `truststore` | Desativar a verificação TLS | **Problema encontrado nos testes:** o certificado de `www.ufrgs.br` falhava no Python (cadeia incompleta para o repositório `certifi`). O `truststore` usa os certificados do SO, como o navegador, sem abrir mão da segurança |
 | Relatórios em português, código em inglês | — | Código seguindo a convenção usual; relatório legível para a apresentação |
+| Proxy (`mcp_tap.py`) para mostrar a comunicação MCP | Logs dentro do servidor MCP; modo debug do Claude Code | O proxy mostra as mensagens **exatamente como trafegam** no protocolo, nos dois sentidos, sem alterar o servidor nem depender de recursos internos do Claude Code. Também serviria para qualquer outro servidor MCP |
 | Sonnet como modelo padrão | Haiku (mais econômico), Opus (mais capaz) | Os três resolveram todos os cenários (seção 9.2). O Sonnet foi o mais rápido e seguiu o formato e a política sem ajustes; o Haiku precisou de duas regras extras no prompt; o Opus é o que mais consome o limite da assinatura |
 
 ---
@@ -338,7 +394,15 @@ política sem ajustes. O Haiku é uma alternativa viável para economizar o limi
 - **Confirmação da ação:** depois de reiniciar, o agente sempre conferiu a recuperação (`check_http` ou `check_port`),
   e o monitor confirmou de forma independente.
 - **Paralelismo:** os modelos pedem várias ferramentas na mesma etapa (ex.: as duas consultas DNS do
-  cenário 3, ou `ping`, `check_port` e `check_http` juntos no cenário 2).
+  cenário 3, ou `ping`, `check_port` e `check_http` juntos no cenário 2). O registro MCP mostra que, mesmo
+  assim, o Claude Code envia os `tools/call` ao servidor **um de cada vez**: a resposta `#4` chega antes
+  da requisição `#5`.
+- **Negociação de versão do MCP:** o registro mostrou que o Claude Code 2.1.300 tenta primeiro uma versão
+  mais nova do protocolo (`server/discover`, 2026-07-28). O servidor, feito com a biblioteca `mcp` 1.30,
+  responde com o erro `-32602`, e o cliente recua para o `initialize` com a versão `2025-11-25`. É a
+  compatibilidade entre versões funcionando na prática.
+- **Descoberta além das ferramentas:** depois de `initialize`, o cliente pede `tools/list`, `prompts/list`
+  e `resources/list`. O servidor só oferece ferramentas (0 prompts, 0 resources).
 
 ### 9.4 Exemplos de relatórios gerados
 Os relatórios completos dos testes estão em `docs/examples/`, separados por modelo (`sonnet-5.5/`,
@@ -432,7 +496,9 @@ Os relatórios completos dos testes estão em `docs/examples/`, separados por mo
 
 1. **Diagrama de arquitetura** (seção 5): pode ser redesenhado a partir do diagrama ASCII.
 2. **Diagrama de sequência de um incidente:** monitor → agent.py → Claude Code → MCP → net_tools → lab.
-3. **Capturas de tela dos 3 terminais** em cada cenário: laboratório (log `by agent`), monitor (chamadas
+3. **Captura da comunicação MCP** no monitor (linhas `[LLM]` e `[MCP]`), com destaque para o par
+   `tools/call` / `result` de mesmo `#id`; e um trecho do `_mcp.jsonl` com uma mensagem JSON-RPC completa.
+4. **Capturas de tela dos 3 terminais** em cada cenário: laboratório (log `by agent`), monitor (chamadas
    de ferramenta ao vivo) e sabotador.
-4. **Tabela de resultados** (seção 9.1) e **comparação entre modelos** (seção 9.2).
-5. **Trecho de um relatório gerado** (pasta `docs/examples/`).
+5. **Tabela de resultados** (seção 9.1) e **comparação entre modelos** (seção 9.2).
+6. **Trecho de um relatório gerado** (pasta `docs/examples/`).
